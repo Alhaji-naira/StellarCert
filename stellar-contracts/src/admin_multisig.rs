@@ -369,7 +369,9 @@ impl AdminMultisigContract {
                     },
                 );
             }
-            AdminAction::Other(_) => {}
+            AdminAction::Other(_) => {
+                panic!("Unsupported action type");
+            }
         }
 
         proposal.status = AdminProposalStatus::Executed;
