@@ -408,3 +408,26 @@ pub enum AdminMultisigDataKey {
     CertificateContractId,
     RemovedIssuer(Address),
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    #[test]
+    #[should_panic(expected = "Invalid admin multisig configuration")]
+    fn test_init_rejects_threshold_above_signer_count() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, AdminMultisigContract);
+        let client = AdminMultisigContractClient::new(&env, &contract_id);
+
+        let signers = soroban_sdk::vec![
+            &env,
+            Address::generate(&env),
+            Address::generate(&env),
+            Address::generate(&env),
+        ]; // 3 signers
+
+        client.init_admin_multisig(&5u32, &signers, &100u32); // threshold 5 > 3 -> panics
+    }
+}
