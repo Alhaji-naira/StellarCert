@@ -330,6 +330,50 @@ fn test_update_crl_metadata_none_preserves_next_update() {
 }
 
 #[test]
+fn test_update_crl_metadata_issuer_authorizes() {
+    let (env, issuer, cert_contract) = setup();
+    let (_, client) = make_client(&env);
+    client.initialize(&issuer, &cert_contract);
+
+    let original = client.get_crl_info().next_update;
+    let new_next = original + 3600;
+
+    // The CRL owner may authorize the update explicitly.
+    client.update_crl_metadata(&Some(new_next), &Some(issuer.clone()));
+
+    assert_eq!(client.get_crl_info().next_update, new_next);
+}
+
+#[test]
+fn test_update_crl_metadata_admin_authorizes() {
+    let (env, issuer, cert_contract) = setup();
+    let (_, client) = make_client(&env);
+    client.initialize(&issuer, &cert_contract);
+
+    let admin = Address::generate(&env);
+    client.set_admin(&admin);
+
+    let original = client.get_crl_info().next_update;
+    let new_next = original + 3600;
+
+    // A configured admin is also an authorized issuer for metadata updates.
+    client.update_crl_metadata(&Some(new_next), &Some(admin.clone()));
+
+    assert_eq!(client.get_crl_info().next_update, new_next);
+}
+
+#[test]
+#[should_panic(expected = "Only issuer or admin can update CRL metadata")]
+fn test_update_crl_metadata_unauthorized_panics() {
+    let (env, issuer, cert_contract) = setup();
+    let (_, client) = make_client(&env);
+    client.initialize(&issuer, &cert_contract);
+
+    let stranger = Address::generate(&env);
+    client.update_crl_metadata(&Some(1), &Some(stranger));
+}
+
+#[test]
 fn test_needs_update_false_after_init() {
     let (env, issuer, cert_contract) = setup();
     let (_, client) = make_client(&env);

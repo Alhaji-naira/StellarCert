@@ -230,9 +230,26 @@ impl CRLContract {
         Self::get_crl_info_internal(&env).merkle_root
     }
 
-    pub fn update_crl_metadata(env: Env, next_update: Option<u64>, _issuer: Option<Address>) {
-        let issuer = Self::get_issuer(&env);
-        issuer.require_auth();
+    pub fn update_crl_metadata(env: Env, next_update: Option<u64>, issuer: Option<Address>) {
+        let crl_issuer = Self::get_issuer(&env);
+
+        // Only the CRL owner or a configured admin may update CRL metadata.
+        // When an explicit issuer is supplied it must be one of those; otherwise
+        // fall back to the CRL owner, still requiring its authorization.
+        let authorizer = match issuer {
+            Some(candidate) => {
+                let is_owner = candidate == crl_issuer;
+                let is_admin = Self::get_admin(&env)
+                    .map(|admin| admin == candidate)
+                    .unwrap_or(false);
+                if !is_owner && !is_admin {
+                    panic!("Only issuer or admin can update CRL metadata");
+                }
+                candidate
+            }
+            None => crl_issuer,
+        };
+        authorizer.require_auth();
 
         let mut crl_info = Self::get_crl_info_internal(&env);
         if let Some(new_next_update) = next_update {
