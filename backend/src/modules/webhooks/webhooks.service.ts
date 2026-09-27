@@ -18,6 +18,13 @@ import { CreateWebhookSubscriptionDto } from './dto/create-webhook-subscription.
 import { LoggingService } from '../../common/logging/logging.service';
 import { validateWebhookUrl } from '../../common/utils/ssrf.utils';
 
+type SanitizedWebhookSubscription = Omit<
+  WebhookSubscription,
+  'secret' | 'secretHash'
+> & { hasSecret: boolean };
+
+type CreatedWebhookSubscription = WebhookSubscription & { hasSecret: boolean };
+
 @Injectable()
 export class WebhooksService {
   constructor(
@@ -38,10 +45,12 @@ export class WebhooksService {
    */
   private sanitizeSubscription(
     sub: WebhookSubscription,
-  ): Omit<WebhookSubscription, 'secret' | 'secretHash'> & {
-    hasSecret: boolean;
-  } {
-    const { secret: _secret, secretHash: _hash, ...rest } = sub as WebhookSubscription & {
+  ): SanitizedWebhookSubscription {
+    const {
+      secret: _secret,
+      secretHash: _hash,
+      ...rest
+    } = sub as WebhookSubscription & {
       secret?: string;
       secretHash?: string;
     };
@@ -53,16 +62,15 @@ export class WebhooksService {
 
   private sanitizeMany(
     subs: WebhookSubscription[],
-  ): Array<Omit<WebhookSubscription, 'secret' | 'secretHash'> & { hasSecret: boolean }> {
+  ): SanitizedWebhookSubscription[] {
     return subs.map((s) => this.sanitizeSubscription(s));
   }
-
 
   // CREATE
   async createSubscription(
     issuerId: string,
     dto: CreateWebhookSubscriptionDto,
-  ): Promise<WebhookSubscription> {
+  ): Promise<CreatedWebhookSubscription> {
     // SSRF protection: validate URL resolves to a safe destination
     const validation = await validateWebhookUrl(dto.url);
     if (!validation.valid) {
@@ -94,7 +102,7 @@ export class WebhooksService {
   }
 
   // LIST
-  async findAll(issuerId: string) {
+  async findAll(issuerId: string): Promise<SanitizedWebhookSubscription[]> {
     const rows = await this.subscriptionRepository.find({
       where: { issuerId },
       order: { createdAt: 'DESC' },
@@ -103,7 +111,10 @@ export class WebhooksService {
   }
 
   // FIND ONE
-  async findOne(id: string, issuerId: string) {
+  async findOne(
+    id: string,
+    issuerId: string,
+  ): Promise<SanitizedWebhookSubscription> {
     const subscription = await this.subscriptionRepository.findOne({
       where: { id, issuerId },
     });
