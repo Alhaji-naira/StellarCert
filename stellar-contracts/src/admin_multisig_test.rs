@@ -93,7 +93,7 @@ fn test_remove_issuer_action_executes_after_threshold() {
     certificate_client.add_issuer(&issuer);
 
     client.init_admin_multisig(&2, &signers, &5);
-    client.set_certificate_contract(&admin1, &certificate_contract_id);
+    client.set_admin_certificate_contract(&admin1, &certificate_contract_id);
 
     let proposal_id = String::from_str(&env, "remove-issuer-1");
     let action = AdminAction::RemoveIssuer(issuer.clone());
@@ -162,5 +162,100 @@ fn test_cancel_proposal() {
 
     client.cancel_proposal(&proposal_id, &admin1);
     let canceled_proposal = client.get_proposal(&proposal_id);
-    assert_eq!(canceled_proposal.status, AdminProposalStatus::Rejected);
+    assert_eq!(canceled_proposal.status, AdminProposalStatus::Cancelled);
+    // The whole point of the fix: a cancellation must never be reported as a
+    // rejection, so audit logs and indexers can tell the two apart.
+    assert_ne!(canceled_proposal.status, AdminProposalStatus::Rejected);
+}
+
+#[test]
+fn test_proposal_payload_is_untouched_by_cancellation() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin1.clone()]);
+    env.mock_all_auths();
+    client.init_admin_multisig(&1, &signers, &10);
+
+    let proposal_id = String::from_str(&env, "prop-cancel-payload");
+    let action = AdminAction::Other(String::from_str(&env, "keep_payload"));
+
+    let proposed = client.propose_action(&proposal_id, &admin1, &action);
+    client.cancel_proposal(&proposal_id, &admin1);
+    let canceled = client.get_proposal(&proposal_id);
+
+    // Cancelling records a new status and nothing else: the action, proposer,
+    // window and (empty) approval set stay exactly as proposed.
+    assert_eq!(canceled.id, proposed.id);
+    assert_eq!(canceled.action, proposed.action);
+    assert_eq!(canceled.proposer, proposed.proposer);
+    assert_eq!(canceled.approvals.len(), 0);
+    assert_eq!(canceled.created_ledger, proposed.created_ledger);
+    assert_eq!(canceled.expires_at_ledger, proposed.expires_at_ledger);
+}
+
+#[test]
+#[should_panic(expected = "Proposal is not pending")]
+fn test_cancelled_proposal_cannot_be_approved() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin1.clone(), admin2.clone()]);
+    env.mock_all_auths();
+    client.init_admin_multisig(&2, &signers, &10);
+
+    let proposal_id = String::from_str(&env, "prop-cancel-then-approve");
+    let action = AdminAction::Other(String::from_str(&env, "cancel_then_approve"));
+
+    client.propose_action(&proposal_id, &admin1, &action);
+    client.cancel_proposal(&proposal_id, &admin1);
+
+    // A cancelled proposal is terminal, exactly like the previously used
+    // `Rejected` status: it cannot be revived by collecting approvals.
+    client.approve_action(&proposal_id, &admin2);
+}
+
+#[test]
+#[should_panic(expected = "Proposal is not pending")]
+fn test_cancelled_proposal_cannot_be_cancelled_twice() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin1.clone()]);
+    env.mock_all_auths();
+    client.init_admin_multisig(&1, &signers, &10);
+
+    let proposal_id = String::from_str(&env, "prop-double-cancel");
+    let action = AdminAction::Other(String::from_str(&env, "double_cancel"));
+
+    client.propose_action(&proposal_id, &admin1, &action);
+    client.cancel_proposal(&proposal_id, &admin1);
+    client.cancel_proposal(&proposal_id, &admin1);
+}
+
+#[test]
+#[should_panic(expected = "Only proposer can cancel")]
+fn test_only_proposer_can_cancel() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin1.clone(), admin2.clone()]);
+    env.mock_all_auths();
+    client.init_admin_multisig(&2, &signers, &10);
+
+    let proposal_id = String::from_str(&env, "prop-cancel-by-other");
+    let action = AdminAction::Other(String::from_str(&env, "cancel_by_other"));
+
+    client.propose_action(&proposal_id, &admin1, &action);
+    client.cancel_proposal(&proposal_id, &admin2);
 }
