@@ -31,16 +31,25 @@ pub mod persistent;
 mod admin_multisig;
 // Explicit re-exports replace `pub use admin_multisig::*`
 pub use admin_multisig::{
-    AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigDataKey, AdminProposal,
-    AdminProposalStatus, ProposalApprovedEvent, ProposalCanceledEvent, ProposalCreatedEvent,
+    AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigContractClient,
+    AdminMultisigDataKey, AdminProposal, AdminProposalStatus, ProposalApprovedEvent,
+    ProposalCanceledEvent, ProposalCreatedEvent,
 };
 
-#[cfg(test)]
+mod admin_multisig_test;
+mod comprehensive_tests;
 mod crl_test;
-#[cfg(test)]
+mod issuer_management_test;
 mod issuer_test;
-#[cfg(test)]
+// metadata_test is deliberately NOT wired in: it exercises `mod metadata`,
+// which is itself commented out above and does not currently compile (32
+// errors). Wiring the test would mean first repairing that module, which is
+// a separate piece of work. See #1023.
+// #[cfg(test)]
+// mod metadata_test;
 mod multisig_test;
+mod status_test;
+mod test;
 
 #[contract]
 pub struct CertificateContract;

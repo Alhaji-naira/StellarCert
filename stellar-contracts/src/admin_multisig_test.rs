@@ -93,7 +93,7 @@ fn test_remove_issuer_action_executes_after_threshold() {
     certificate_client.add_issuer(&issuer);
 
     client.init_admin_multisig(&2, &signers, &5);
-    client.set_certificate_contract(&admin1, &certificate_contract_id);
+    client.set_admin_certificate_contract(&admin1, &certificate_contract_id);
 
     let proposal_id = String::from_str(&env, "remove-issuer-1");
     let action = AdminAction::RemoveIssuer(issuer.clone());
