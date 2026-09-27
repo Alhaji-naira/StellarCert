@@ -32,6 +32,32 @@ export class WebhooksService {
     private readonly logger: LoggingService,
   ) {}
 
+  /**
+   * Issue #719 – Strip the raw HMAC secret from API responses.
+   * Clients only receive the secret once at creation time.
+   */
+  private sanitizeSubscription(
+    sub: WebhookSubscription,
+  ): Omit<WebhookSubscription, 'secret' | 'secretHash'> & {
+    hasSecret: boolean;
+  } {
+    const { secret: _secret, secretHash: _hash, ...rest } = sub as WebhookSubscription & {
+      secret?: string;
+      secretHash?: string;
+    };
+    return {
+      ...rest,
+      hasSecret: Boolean(_secret || _hash),
+    };
+  }
+
+  private sanitizeMany(
+    subs: WebhookSubscription[],
+  ): Array<Omit<WebhookSubscription, 'secret' | 'secretHash'> & { hasSecret: boolean }> {
+    return subs.map((s) => this.sanitizeSubscription(s));
+  }
+
+
   // CREATE
   async createSubscription(
     issuerId: string,
@@ -46,27 +72,38 @@ export class WebhooksService {
     }
 
     const secret = crypto.randomBytes(32).toString('hex');
+    const secretHash = crypto.createHash('sha256').update(secret).digest('hex');
 
     const subscription = this.subscriptionRepository.create({
       ...dto,
       issuerId,
       secret,
+      secretHash,
       isActive: true,
     });
 
-    return this.subscriptionRepository.save(subscription);
+    const saved = await this.subscriptionRepository.save(subscription);
+
+    // Issue #719 – return the plaintext secret ONLY on create so the caller
+    // can store it; subsequent reads never include `secret`.
+    return {
+      ...saved,
+      secret, // one-time reveal
+      hasSecret: true,
+    };
   }
 
   // LIST
-  async findAll(issuerId: string): Promise<WebhookSubscription[]> {
-    return this.subscriptionRepository.find({
+  async findAll(issuerId: string) {
+    const rows = await this.subscriptionRepository.find({
       where: { issuerId },
       order: { createdAt: 'DESC' },
     });
+    return this.sanitizeMany(rows);
   }
 
   // FIND ONE
-  async findOne(id: string, issuerId: string): Promise<WebhookSubscription> {
+  async findOne(id: string, issuerId: string) {
     const subscription = await this.subscriptionRepository.findOne({
       where: { id, issuerId },
     });
@@ -75,12 +112,26 @@ export class WebhooksService {
       throw new NotFoundException('Webhook subscription not found');
     }
 
+    return this.sanitizeSubscription(subscription);
+  }
+
+  /** Internal: load subscription WITH secret for delivery / signing. */
+  async findOneWithSecret(
+    id: string,
+    issuerId: string,
+  ): Promise<WebhookSubscription> {
+    const subscription = await this.subscriptionRepository.findOne({
+      where: { id, issuerId },
+    });
+    if (!subscription) {
+      throw new NotFoundException('Webhook subscription not found');
+    }
     return subscription;
   }
 
   // DELETE
   async remove(id: string, issuerId: string): Promise<void> {
-    const subscription = await this.findOne(id, issuerId);
+    const subscription = await this.findOneWithSecret(id, issuerId);
     await this.subscriptionRepository.remove(subscription);
   }
 

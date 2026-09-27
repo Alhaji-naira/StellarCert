@@ -42,8 +42,19 @@ export class WebhookSubscription {
   })
   events: WebhookEvent[];
 
+  /**
+   * HMAC signing secret. Never expose after create (#719).
+   * API responses use {@link sanitizeSubscription} which strips this field.
+   */
   @Column()
   secret: string;
+
+  /**
+   * SHA-256 hash of the secret for storage integrity checks.
+   * Not a substitute for the secret used in HMAC delivery.
+   */
+  @Column({ nullable: true })
+  secretHash?: string;
 
   @Column({ default: true })
   isActive: boolean;
