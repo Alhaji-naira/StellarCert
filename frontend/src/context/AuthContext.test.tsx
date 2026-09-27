@@ -3,6 +3,7 @@ import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AuthProvider, useAuth } from './AuthContext';
 import { tokenStorage, notifyTokenRefreshed } from '../api/tokens';
+import { authApi } from '../api/endpoints';
 import { User, UserRole } from '../api/types';
 
 vi.mock('../api/endpoints', () => ({
