@@ -16,6 +16,10 @@ pub enum RevocationReason {
     CertificateHold = 5,
     PrivilegeWithdrawn = 6,
     AACompromise = 7,
+    /// Neutral fallback used when a free-form reason string mirrored from the
+    /// certificate contract cannot be mapped to one of the codes above. Kept at
+    /// 8 so the existing on-chain codes (0-7) stay stable.
+    Unspecified = 8,
 }
 
 #[contracttype]
@@ -132,7 +136,7 @@ impl CRLContract {
         authorizer: Address,
         certificate_id: String,
         reason: RevocationReason,
-        _serial_number: Option<String>,
+        serial_number: Option<String>,
     ) {
         let issuer = Self::get_issuer(&env);
         // Allow either the configured issuer or an admin to authorize revocations
@@ -166,33 +170,77 @@ impl CRLContract {
             panic!("Certificate does not exist");
         }
 
+        Self::record_revocation(&env, &authorizer, &certificate_id, reason, serial_number);
+    }
+
+    /// Record a revocation mirrored from `CertificateContract::revoke_certificate`.
+    ///
+    /// The certificate contract has already authenticated the issuer and loaded
+    /// the certificate, and Soroban forbids it re-entering the certificate
+    /// contract, so the `certificate_exists` check used by
+    /// [`Self::revoke_certificate`] cannot run here. The caller is authenticated
+    /// directly instead: only the configured certificate contract can use this
+    /// entry point.
+    pub fn revoke_certificate_mirrored(
+        env: Env,
+        issuer: Address,
+        certificate_id: String,
+        reason: RevocationReason,
+        serial_number: Option<String>,
+    ) {
+        let cert_contract: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CertContract)
+            .expect("CRL not initialized");
+        cert_contract.require_auth();
+
+        Self::record_revocation(&env, &issuer, &certificate_id, reason, serial_number);
+    }
+
+    /// Shared revocation bookkeeping used by both public entry points.
+    fn record_revocation(
+        env: &Env,
+        revoked_by: &Address,
+        certificate_id: &String,
+        reason: RevocationReason,
+        _serial_number: Option<String>,
+    ) {
+        let issuer = Self::get_issuer(env);
+
         let revocation_key = DataKey::Revocation(certificate_id.clone());
         if env.storage().persistent().has(&revocation_key) {
             panic!("Certificate already revoked");
         }
 
-        let mut crl_info = Self::get_crl_info_internal(&env);
+        let mut crl_info = Self::get_crl_info_internal(env);
         let revocation_info = RevocationInfo {
             certificate_id: certificate_id.clone(),
             reason: reason as u32,
             issuer: issuer.clone(),
             revocation_date: env.ledger().timestamp(),
-            revoked_by: authorizer.clone(),
+            revoked_by: revoked_by.clone(),
         };
 
-        Self::set_persistent(&env, &revocation_key, &revocation_info);
+        Self::set_persistent(env, &revocation_key, &revocation_info);
 
-        let mut revoked_certificates = Self::get_revoked_certificate_ids(&env);
+        let mut revoked_certificates = Self::get_revoked_certificate_ids(env);
         revoked_certificates.push_back(certificate_id.clone());
-        Self::set_persistent(&env, &DataKey::RevokedCertificates, &revoked_certificates);
+        Self::set_persistent(env, &DataKey::RevokedCertificates, &revoked_certificates);
 
         crl_info.revoked_count += 1;
-        Self::refresh_crl_info(&env, &mut crl_info, &revoked_certificates);
-        Self::set_persistent(&env, &DataKey::Info, &crl_info);
+        Self::refresh_crl_info(env, &mut crl_info, &revoked_certificates);
+        Self::set_persistent(env, &DataKey::Info, &crl_info);
 
         // Announce the revocation only after every storage write succeeded, so
         // the event always describes state that can be read back: an indexer
         // that reacts to it will find the revocation and the CRL head it names.
+        //
+        // This deliberately lives in `record_revocation` rather than in
+        // `revoke_certificate`: a revocation mirrored from the certificate
+        // contract goes through `revoke_certificate_mirrored`, and both paths
+        // must publish exactly the same event — an indexer must not be able to
+        // tell them apart.
         env.events().publish(
             (
                 symbol_short!("crl"),
@@ -200,7 +248,7 @@ impl CRLContract {
                 certificate_id.clone(),
             ),
             CRLRevocationAddedEvent {
-                certificate_id,
+                certificate_id: certificate_id.clone(),
                 reason: revocation_info.reason,
                 revoked_by: revocation_info.revoked_by.clone(),
                 revocation_date: revocation_info.revocation_date,

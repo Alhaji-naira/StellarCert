@@ -133,6 +133,33 @@ CRL_CONTRACT_ID=$(soroban contract deploy \
 
 echo "CRL contract deployed with ID: $CRL_CONTRACT_ID"
 
+# Initialize the CRL and link it to the certificate contract so that
+# CertificateContract.revoke_certificate mirrors the revocation into the CRL in
+# the same transaction. The CRL issuer must be the same address that issues
+# certificates, otherwise the mirrored revocation is rejected.
+echo "Initializing CRL contract..."
+soroban contract invoke \
+    --id "$CRL_CONTRACT_ID" \
+    --source "$ADMIN_SECRET" \
+    --rpc-url "$RPC_URL" \
+    --network-passphrase "$(soroban config network pass $NETWORK)" \
+    -- \
+    initialize \
+    --issuer "$ADMIN_ADDRESS" \
+    --certificate_contract "$CERT_CONTRACT_ID"
+
+echo "Linking certificate contract to CRL..."
+soroban contract invoke \
+    --id "$CERT_CONTRACT_ID" \
+    --source "$ADMIN_SECRET" \
+    --rpc-url "$RPC_URL" \
+    --network-passphrase "$(soroban config network pass $NETWORK)" \
+    -- \
+    set_crl_contract \
+    --crl_contract "$CRL_CONTRACT_ID"
+
+echo "Certificate contract linked to CRL successfully!"
+
 # Output configuration
 echo ""
 echo "=== DEPLOYMENT COMPLETE ==="

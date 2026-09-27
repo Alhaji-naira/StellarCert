@@ -47,6 +47,8 @@ mod issuer_test;
 #[cfg(test)]
 mod multisig_test;
 #[cfg(test)]
+mod revoke_sync_test;
+#[cfg(test)]
 mod transfer_security_test;
 
 #[contract]
@@ -243,7 +245,13 @@ impl CertificateContract {
         );
     }
 
-    /// Revoke an existing certificate (only the original issuer can revoke)
+    /// Revoke an existing certificate (only the original issuer can revoke).
+    ///
+    /// When a CRL contract has been configured with [`Self::set_crl_contract`],
+    /// the revocation is mirrored into the CRL in the same transaction so the
+    /// two ledgers can never disagree. If the CRL call fails the whole
+    /// revocation reverts, instead of leaving a certificate that is revoked in
+    /// the main contract but still passes CRL checks.
     pub fn revoke_certificate(env: Env, id: String, reason: String) {
         let mut cert: Certificate = env
             .storage()
@@ -260,11 +268,108 @@ impl CertificateContract {
         cert.revocation_reason = Some(reason.clone());
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
+        Self::mirror_revocation_to_crl(&env, &cert.issuer, &id, &reason);
+
         // Emit and publish revocation event
         env.events().publish(
             (symbol_short!("revoked"), id.clone()),
             CertificateRevokedEvent { id, reason },
         );
+    }
+
+    /// Configure the CRL contract that revocations must be mirrored into.
+    /// Admin-only.
+    pub fn set_crl_contract(env: Env, crl_contract: Address) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+        admin.require_auth();
+
+        Self::set_persistent(&env, &DataKey::CrlContract, &crl_contract);
+    }
+
+    /// Address of the CRL contract configured for this contract, if any.
+    pub fn get_crl_contract(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::CrlContract)
+    }
+
+    /// Mirror a revocation into the configured CRL contract.
+    ///
+    /// A no-op when no CRL contract has been configured, so deployments that
+    /// intentionally manage the CRL out-of-band keep working unchanged.
+    fn mirror_revocation_to_crl(env: &Env, issuer: &Address, id: &String, reason: &String) {
+        let crl_contract: Address = match env.storage().persistent().get(&DataKey::CrlContract) {
+            Some(address) => address,
+            None => return,
+        };
+
+        let reason_code = Self::map_revocation_reason(reason);
+        // `revoke_certificate_mirrored` authenticates this contract instead of
+        // the issuer: the CRL cannot call back into `certificate_exists` while
+        // we are on the stack, so the redundant existence check is skipped.
+        env.invoke_contract::<()>(
+            &crl_contract,
+            &Symbol::new(env, "revoke_certificate_mirrored"),
+            soroban_sdk::vec![
+                env,
+                issuer.clone().into_val(env),
+                id.clone().into_val(env),
+                reason_code.into_val(env),
+                Option::<String>::None.into_val(env),
+            ],
+        );
+    }
+
+    /// Map the free-form revocation reason kept on a certificate onto the CRL's
+    /// fixed reason codes. Matching ignores case and separators, so
+    /// "Key Compromise", "key_compromise" and "KeyCompromise" all agree;
+    /// anything unrecognised falls back to `Unspecified`.
+    fn map_revocation_reason(reason: &String) -> RevocationReason {
+        fn is(normalised: &[u8], candidate: &[u8]) -> bool {
+            normalised.len() == candidate.len() && normalised == candidate
+        }
+
+        let len = reason.len() as usize;
+        let mut raw = [0u8; 64];
+        if len == 0 || len > raw.len() {
+            return RevocationReason::Unspecified;
+        }
+        reason.copy_into_slice(&mut raw[..len]);
+
+        let mut normalised = [0u8; 64];
+        let mut n = 0usize;
+        let mut i = 0usize;
+        while i < len {
+            let byte = raw[i];
+            if byte != b' ' && byte != b'_' && byte != b'-' {
+                normalised[n] = byte.to_ascii_lowercase();
+                n += 1;
+            }
+            i += 1;
+        }
+        let normalised = &normalised[..n];
+
+        if is(normalised, b"keycompromise") {
+            RevocationReason::KeyCompromise
+        } else if is(normalised, b"cacompromise") {
+            RevocationReason::CACompromise
+        } else if is(normalised, b"affiliationchanged") {
+            RevocationReason::AffiliationChanged
+        } else if is(normalised, b"superseded") {
+            RevocationReason::Superseded
+        } else if is(normalised, b"cessationofoperation") {
+            RevocationReason::CessationOfOperation
+        } else if is(normalised, b"certificatehold") {
+            RevocationReason::CertificateHold
+        } else if is(normalised, b"privilegewithdrawn") {
+            RevocationReason::PrivilegeWithdrawn
+        } else if is(normalised, b"aacompromise") {
+            RevocationReason::AACompromise
+        } else {
+            RevocationReason::Unspecified
+        }
     }
 
     /// Check if a certificate exists
