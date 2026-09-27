@@ -168,7 +168,7 @@ pub fn register_schema(env: &Env, schema: MetadataSchemaRecord) -> Result<(), Me
     // Update name index to point to this schema
     env.storage()
         .instance()
-        .set(&schema.name, &schema.id);
+        .set(&MetadataKey::SchemaNameIndex(schema.name.clone()), &schema.id);
 
     // Update schema count
     let count: u32 = env
@@ -184,12 +184,12 @@ pub fn register_schema(env: &Env, schema: MetadataSchemaRecord) -> Result<(), Me
     let mut history: Vec<String> = env
         .storage()
         .instance()
-        .get(&schema.name)
+        .get(&MetadataKey::SchemaHistory(schema.name.clone()))
         .unwrap_or_else(|| Vec::new(env));
     history.push_back(schema.id.clone());
     env.storage()
         .instance()
-        .set(&schema.name, &history);
+        .set(&MetadataKey::SchemaHistory(schema.name.clone()), &history);
 
     Ok(())
 }
@@ -211,7 +211,7 @@ pub fn get_schema_count(env: &Env) -> u32 {
 pub fn get_schema_history(env: &Env, name: &String) -> Vec<String> {
     env.storage()
         .instance()
-        .get(name)
+        .get(&MetadataKey::SchemaHistory(name.clone()))
         .unwrap_or_else(|| Vec::new(env))
 }
 
