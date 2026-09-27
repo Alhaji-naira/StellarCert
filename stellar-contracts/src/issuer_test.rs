@@ -17,6 +17,7 @@ fn test_issuer_management() {
     let issuer2 = Address::generate(&env);
 
     // Initialize with admin
+    env.mock_all_auths();
     client.initialize(&admin);
 
     // Initial count should be 0
@@ -62,6 +63,7 @@ fn test_issued_certificate_ttl_is_extended() {
     let id = String::from_str(&env, "cert-ttl-001");
     let metadata_uri = String::from_str(&env, "ipfs://ttl");
 
+    env.mock_all_auths();
     client.initialize(&admin);
     env.mock_all_auths();
     client.add_issuer(&issuer);
@@ -89,6 +91,7 @@ fn test_remove_issuer_updates_vec_and_count() {
     let issuer1 = Address::generate(&env);
     let issuer2 = Address::generate(&env);
 
+    env.mock_all_auths();
     client.initialize(&admin);
     env.mock_all_auths();
 
@@ -120,6 +123,7 @@ fn test_remove_issuer_idempotent_on_missing_issuer() {
     let issuer1 = Address::generate(&env);
     let ghost = Address::generate(&env);
 
+    env.mock_all_auths();
     client.initialize(&admin);
     env.mock_all_auths();
 
@@ -145,6 +149,7 @@ fn test_remove_all_issuers_reaches_zero() {
     let issuer2 = Address::generate(&env);
     let issuer3 = Address::generate(&env);
 
+    env.mock_all_auths();
     client.initialize(&admin);
     env.mock_all_auths();
 
