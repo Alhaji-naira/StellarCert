@@ -1,6 +1,5 @@
 import {
   ActivityItem,
-  AdminAnalytics,
   ApiError,
   AuthResponse,
   AuditLogItem,
@@ -1353,66 +1352,24 @@ export const issuerProfileApi = {
 };
 
 // ==================== DASHBOARD & ANALYTICS ====================
-
-export const dashboardApi = {
-  getStats: async (): Promise<DashboardStats> => {
-    if (USE_DUMMY_DATA) {
-      await simulateDelay();
-      return {
-        totalCertificates: 1250,
-        activeCertificates: 1200,
-        revokedCertificates: 30,
-        expiredCertificates: 20,
-        issuanceTrend: [
-          { date: "2023-01", count: 100 },
-          { date: "2023-02", count: 120 },
-          { date: "2023-03", count: 150 },
-        ],
-        totalVerifications: 450,
-        verifications24h: 15,
-        totalUsers: 1150,
-        statusDistribution: {
-          active: 1200,
-          revoked: 30,
-          expired: 20
-        },
-        recentActivity: [
-          {
-            type: "issue",
-            date: new Date().toISOString(),
-            description: "Issued certificate 'Blockchain Expert' to John Doe",
-          },
-        ],
-      };
-    }
-    const data = await apiClient<AdminAnalytics>("/admin/analytics");
-    return {
-      totalCertificates: data.certificatesByStatus.total,
-      activeCertificates: data.certificatesByStatus.active,
-      revokedCertificates: data.certificatesByStatus.revoked,
-      expiredCertificates: data.certificatesByStatus.expired,
-      totalVerifications: data.verificationTrends.total,
-      verifications24h: data.verificationTrends.last24Hours,
-      totalUsers: data.usersByRole.total,
-      issuanceTrend: data.certificateIssuanceTrend,
-      recentActivity: [],
-    };
-  },
-
-  getRecentActivity: async (limit = 10): Promise<ActivityItem[]> => {
-    if (USE_DUMMY_DATA) {
-      await simulateDelay();
-      return [
-        {
-          type: "issue",
-          date: new Date().toISOString(),
-          description: "Issued certificate 'Blockchain Expert' to John Doe",
-        },
-      ];
-    }
-    return apiClient<ActivityItem[]>(`/admin/analytics/activity?limit=${limit}`);
-  },
-};
+//
+// Dashboard statistics are served by `analyticsApi.getDashboardSummary` above,
+// which reads /certificates/stats. That is the endpoint to use and to change.
+//
+// A second `dashboardApi.getStats` used to live here, reading
+// /admin/analytics. It was removed rather than merged because it was wrong on
+// two counts, and neither was visible from the frontend alone:
+//
+//   1. /admin/analytics is @Roles(ADMIN) in AdminAnalyticsController, while
+//      /certificates/stats allows ADMIN, ISSUER and AUDITOR. Dashboard.tsx
+//      renders IssuerDashboard for any non-admin, non-recipient, non-verifier
+//      user, so an issuer using it would have been rejected with a 403.
+//   2. It never populated `statusDistribution`, so any consumer reading it
+//      would have silently seen undefined for that field.
+//
+// Its sibling `getRecentActivity` called /admin/analytics/activity, a route
+// that does not exist in the backend at all. Neither function had any caller
+// outside this file, so removing them changed no behaviour.
 
 // ==================== AUDIT LOGS (#283) ====================
 
