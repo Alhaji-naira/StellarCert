@@ -116,6 +116,32 @@ fn test_update_certificate_metadata() {
 }
 
 #[test]
+fn test_update_frozen_certificate_metadata() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-frozen-update");
+    let metadata_uri = String::from_str(&env, "ipfs://QmOriginal");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+    client.freeze_certificate(&id, &String::from_str(&env, "freeze for update"));
+
+    let new_metadata = String::from_str(&env, "ipfs://QmUpdated");
+    client.update_certificate_metadata(&id, &new_metadata);
+    
+    let cert_after = client.get_certificate(&id).expect("Certificate should exist");
+    assert_eq!(cert_after.metadata_uri, new_metadata);
+    assert_eq!(cert_after.version.minor, 1);
+}
+
+#[test]
 fn test_reissue_certificate() {
     let env = Env::default();
     let contract_id = env.register_contract(None, CertificateContract);
