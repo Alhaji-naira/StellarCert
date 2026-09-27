@@ -60,6 +60,7 @@ export class AuthModule implements NestModule {
       .forRoutes(
         { path: 'auth/login', method: RequestMethod.POST },
         { path: 'auth/register', method: RequestMethod.POST },
+        { path: 'auth/2fa/verify', method: RequestMethod.POST },
       );
   }
 }
