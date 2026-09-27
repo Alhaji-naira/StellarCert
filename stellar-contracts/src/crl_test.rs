@@ -3,7 +3,7 @@
 extern crate std;
 
 use super::crl::*;
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, testutils::Address as _, testutils::Events as _, Address, Env, String};
 use std::string::ToString;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -358,4 +358,144 @@ fn test_set_admin_allows_revocation() {
         &None,
     );
     assert!(client.is_revoked(&cert_id));
+}
+
+// ─── Revocation events ────────────────────────────────────────────────────────
+
+/// The exact event published by `revoke_certificate`, matched topic by topic and
+/// field by field. Backend webhooks and indexers key off this shape, so it is
+/// asserted literally rather than by counting events.
+#[test]
+fn test_revoke_certificate_emits_revocation_added_event() {
+    use soroban_sdk::{symbol_short, vec, IntoVal};
+
+    let (env, issuer, cert_contract) = setup();
+    let (contract_id, client) = make_client(&env);
+    client.initialize(&issuer, &cert_contract);
+
+    let cert_id = String::from_str(&env, "CERT-001");
+    client.revoke_certificate(&issuer, &cert_id, &RevocationReason::KeyCompromise, &None);
+
+    // `all()` only reflects the most recent contract invocation, so the event
+    // list is captured before any further call to the contract.
+    let emitted = env.events().all();
+
+    let crl = client.get_crl_info();
+    let expected_payload = CRLRevocationAddedEvent {
+        certificate_id: cert_id.clone(),
+        reason: RevocationReason::KeyCompromise as u32,
+        revoked_by: issuer.clone(),
+        revocation_date: env.ledger().timestamp(),
+        revoked_count: crl.revoked_count,
+        crl_number: crl.crl_number,
+        merkle_root: crl.merkle_root.clone(),
+        this_update: crl.this_update,
+        next_update: crl.next_update,
+    };
+
+    let expected = vec![
+        &env,
+        (
+            contract_id.clone(),
+            vec![
+                &env,
+                symbol_short!("crl").into_val(&env),
+                symbol_short!("revoked").into_val(&env),
+                cert_id.clone().into_val(&env),
+            ],
+            expected_payload.into_val(&env),
+        ),
+    ];
+
+    assert_eq!(emitted, expected);
+}
+
+/// One revocation, one event: a second revocation must not reuse the first
+/// event's certificate id, and the CRL head in each event must match the state
+/// the contract actually holds afterwards.
+#[test]
+fn test_each_revocation_emits_its_own_event_with_the_current_crl_head() {
+    use soroban_sdk::{symbol_short, vec, IntoVal};
+
+    let (env, issuer, cert_contract) = setup();
+    let (contract_id, client) = make_client(&env);
+    client.initialize(&issuer, &cert_contract);
+
+    let first = String::from_str(&env, "CERT-001");
+    client.revoke_certificate(&issuer, &first, &RevocationReason::KeyCompromise, &None);
+    let after_first = client.get_crl_info();
+
+    let second = String::from_str(&env, "CERT-002");
+    client.revoke_certificate(&issuer, &second, &RevocationReason::CACompromise, &None);
+    // Captured before the reads below, which are themselves contract calls.
+    let emitted = env.events().all();
+    let after_second = client.get_crl_info();
+
+    // crl_number and revoked_count advance after every revocation, so the two
+    // events differ even though only the certificate id changed in the call.
+    assert_eq!(after_second.revoked_count, 2);
+    assert_eq!(after_second.crl_number, after_first.crl_number + 1);
+    assert_ne!(after_first.merkle_root, after_second.merkle_root);
+
+    let expected = vec![
+        &env,
+        (
+            contract_id.clone(),
+            vec![
+                &env,
+                symbol_short!("crl").into_val(&env),
+                symbol_short!("revoked").into_val(&env),
+                second.clone().into_val(&env),
+            ],
+            CRLRevocationAddedEvent {
+                certificate_id: second.clone(),
+                reason: RevocationReason::CACompromise as u32,
+                revoked_by: issuer.clone(),
+                revocation_date: env.ledger().timestamp(),
+                revoked_count: after_second.revoked_count,
+                crl_number: after_second.crl_number,
+                merkle_root: after_second.merkle_root.clone(),
+                this_update: after_second.this_update,
+                next_update: after_second.next_update,
+            }
+            .into_val(&env),
+        ),
+    ];
+
+    assert_eq!(emitted, expected);
+    assert_eq!(client.get_revoked_count(), 2);
+}
+
+/// A rejected revocation must not signal anything: an indexer that reacted to a
+/// failed call would mark a certificate as revoked that the contract never
+/// revoked.
+#[test]
+fn test_rejected_revocation_emits_no_event() {
+    let (env, issuer, cert_contract) = setup();
+    let (_, client) = make_client(&env);
+    client.initialize(&issuer, &cert_contract);
+
+    let cert_id = String::from_str(&env, "CERT-001");
+    client.revoke_certificate(&issuer, &cert_id, &RevocationReason::KeyCompromise, &None);
+
+    let duplicate = client.try_revoke_certificate(
+        &issuer,
+        &cert_id,
+        &RevocationReason::KeyCompromise,
+        &None,
+    );
+    assert!(duplicate.is_err());
+    assert!(env.events().all().events().is_empty());
+
+    // And a revocation from an address that is neither issuer nor admin is
+    // rejected the same way.
+    let stranger = Address::generate(&env);
+    let unauthorized = client.try_revoke_certificate(
+        &stranger,
+        &String::from_str(&env, "CERT-002"),
+        &RevocationReason::KeyCompromise,
+        &None,
+    );
+    assert!(unauthorized.is_err());
+    assert!(env.events().all().events().is_empty());
 }
