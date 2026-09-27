@@ -9,6 +9,7 @@
     "test": "vitest",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "typecheck": "tsc -b",
+    "check:import-case": "node scripts/check-import-case.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -45,3 +46,4 @@
     "vitest": "^4.1.11"
   }
 }
+
