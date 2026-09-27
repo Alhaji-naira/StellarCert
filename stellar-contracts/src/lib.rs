@@ -309,6 +309,18 @@ impl CertificateContract {
             .expect("Certificate not found");
         cert.issuer.require_auth();
 
+        // The stored issuer must still be an authorized issuer: an issuer who
+        // has been removed via `remove_issuer()` must not be able to freeze
+        // certificates they previously issued.
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Issuer(cert.issuer.clone()))
+            .unwrap_or(false)
+        {
+            panic!("Address is not an authorized issuer");
+        }
+
         if cert.status == CertificateStatus::Frozen {
             panic!("Certificate is already frozen");
         }
@@ -332,6 +344,17 @@ impl CertificateContract {
             .get(&DataKey::Certificate(id.clone()))
             .expect("Certificate not found");
         cert.issuer.require_auth();
+
+        // Mirror the freeze guard: a removed issuer must not be able to
+        // unfreeze (or otherwise mutate) certificates they previously issued.
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Issuer(cert.issuer.clone()))
+            .unwrap_or(false)
+        {
+            panic!("Address is not an authorized issuer");
+        }
 
         if cert.status != CertificateStatus::Frozen {
             panic!("Certificate is not frozen");
