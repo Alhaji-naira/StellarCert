@@ -35,12 +35,23 @@ pub use admin_multisig::{
     AdminProposalStatus, ProposalApprovedEvent, ProposalCanceledEvent, ProposalCreatedEvent,
 };
 
+mod shadow;
+// Explicit re-exports replace `pub use shadow::*`
+pub use shadow::{
+    get_latest_schema_id, get_schema, get_schema_count, get_schema_history, register_schema,
+    upgrade_schema, validate_metadata, MetadataEntry, MetadataError, MetadataFieldRule,
+    MetadataFieldType, MetadataKey, MetadataSchemaRecord, MetadataSchemaVersion,
+    MetadataValidationError, MetadataValidationResult,
+};
+
 #[cfg(test)]
 mod crl_test;
 #[cfg(test)]
 mod issuer_test;
 #[cfg(test)]
 mod multisig_test;
+#[cfg(test)]
+mod shadow_test;
 
 #[contract]
 pub struct CertificateContract;
