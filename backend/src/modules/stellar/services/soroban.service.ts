@@ -243,7 +243,11 @@ export class SorobanService implements OnModuleInit {
   }
 
   /**
-   * Issue a certificate on-chain
+   * Issue a certificate on-chain.
+   *
+   * @returns the Soroban transaction hash once the ledger confirms the
+   *   transaction with `SUCCESS`, or `null` when issuance failed. Callers must
+   *   treat `null` as a failure and must not record a transaction hash.
    */
   async issueCertificate(
     id: string,
@@ -251,7 +255,7 @@ export class SorobanService implements OnModuleInit {
     ownerAddress: string,
     metadataUri: string,
     expiresAt?: number,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     try {
       if (!this.certificateContractId) {
         throw new Error('Certificate contract ID not configured.');
@@ -294,11 +298,18 @@ export class SorobanService implements OnModuleInit {
       // Poll until the ledger confirms the transaction
       const txResponse = await this.pollTransaction(result.hash);
 
-      return txResponse.status === 'SUCCESS';
+      if (txResponse.status !== 'SUCCESS') {
+        this.logger.error(
+          `Certificate issuance transaction ${result.hash} ended with status ${txResponse.status}`,
+        );
+        return null;
+      }
+
+      return result.hash;
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Certificate issuance failed: ${message}`);
-      return false;
+      return null;
     }
   }
 

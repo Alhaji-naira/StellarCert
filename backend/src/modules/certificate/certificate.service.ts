@@ -1,9 +1,11 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
   Logger,
   NotFoundException,
   InternalServerErrorException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -178,13 +180,9 @@ export class CertificateService {
 
             // Persist the Stellar transaction hash so callers can verify on-chain
             await this.certificateRepository.update(savedCertificate.id, {
-              stellarTransactionHash:
-                typeof txHash === 'string' ? txHash : undefined,
+              stellarTransactionHash: txHash,
             });
-
-            if (typeof txHash === 'string') {
-              savedCertificate.stellarTransactionHash = txHash;
-            }
+            savedCertificate.stellarTransactionHash = txHash;
 
             this.logger.log(
               `Certificate ${savedCertificate.id} issued on-chain`,
@@ -223,8 +221,13 @@ export class CertificateService {
 
       return savedCertificate;
     } catch (error) {
-      // Rollback transaction on error
-      await queryRunner.rollbackTransaction();
+      // Roll back only while the transaction is still open. The on-chain call
+      // runs after commitTransaction(), so a chain failure must not attempt to
+      // roll back an already-committed transaction - doing so would mask the
+      // original error and leave callers with a misleading failure.
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       this.logger.error(
         `Failed to create certificate: ${error.message}`,
         error.stack,
@@ -234,6 +237,82 @@ export class CertificateService {
       // Release the QueryRunner
       await queryRunner.release();
     }
+  }
+
+  /**
+   * Re-attempts on-chain issuance for a certificate whose database row was
+   * committed but whose Soroban call failed (or was skipped), leaving the
+   * record without a `stellarTransactionHash`.
+   *
+   * Idempotent: a certificate that already carries a transaction hash is
+   * returned untouched, so issuers can safely retry the endpoint.
+   *
+   * @throws ServiceUnavailableException when Soroban is not configured
+   * @throws BadRequestException when the certificate is missing the Stellar
+   *   addresses the contract call needs
+   * @throws InternalServerErrorException when the retry still fails on-chain
+   */
+  async syncChain(id: string): Promise<{
+    certificate: Certificate;
+    alreadySynced: boolean;
+    stellarTransactionHash: string | null;
+  }> {
+    const certificate = await this.findOne(id);
+
+    if (certificate.stellarTransactionHash) {
+      return {
+        certificate,
+        alreadySynced: true,
+        stellarTransactionHash: certificate.stellarTransactionHash,
+      };
+    }
+
+    if (!this.sorobanService.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Soroban is not configured; on-chain issuance cannot be retried',
+      );
+    }
+
+    const issuerAddress = certificate.issuerStellarAddress ?? '';
+    const ownerAddress = certificate.recipientStellarAddress ?? '';
+    if (!issuerAddress || !ownerAddress) {
+      throw new BadRequestException(
+        'Certificate is missing the Stellar addresses required for on-chain issuance',
+      );
+    }
+
+    const expiresAtUnix = certificate.expiresAt
+      ? Math.floor(certificate.expiresAt.getTime() / 1000)
+      : undefined;
+
+    const txHash = await this.sorobanService.issueCertificate(
+      certificate.id,
+      issuerAddress,
+      ownerAddress,
+      certificate.verificationCode ?? certificate.id,
+      expiresAtUnix,
+    );
+
+    if (!txHash) {
+      throw new InternalServerErrorException(
+        `On-chain issuance failed for certificate ${certificate.id}`,
+      );
+    }
+
+    await this.certificateRepository.update(certificate.id, {
+      stellarTransactionHash: txHash,
+    });
+    certificate.stellarTransactionHash = txHash;
+
+    this.logger.log(
+      `Certificate ${certificate.id} re-issued on-chain via sync-chain`,
+    );
+
+    return {
+      certificate,
+      alreadySynced: false,
+      stellarTransactionHash: txHash,
+    };
   }
 
   async findAll(
