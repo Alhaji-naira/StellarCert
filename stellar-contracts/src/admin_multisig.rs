@@ -155,6 +155,7 @@ impl AdminMultisigContract {
         };
 
         Self::set_persistent(&env, &proposal_key, &proposal);
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("created")),
             ProposalCreatedEvent {
@@ -202,6 +203,8 @@ impl AdminMultisigContract {
         proposal.approvals.push_back(approver.clone());
         let approval_count = proposal.approvals.len();
 
+        #[allow(deprecated)]
+
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("approved")),
             ProposalApprovedEvent {
@@ -247,6 +250,8 @@ impl AdminMultisigContract {
 
         proposal.status = AdminProposalStatus::Rejected;
         Self::set_persistent(&env, &proposal_key, &proposal);
+
+        #[allow(deprecated)]
 
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("canceled")),
@@ -374,6 +379,7 @@ impl AdminMultisigContract {
 
         proposal.status = AdminProposalStatus::Executed;
         Self::set_persistent(&env, &proposal_key, &proposal);
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("executed")),
             proposal_id,
@@ -408,3 +414,6 @@ pub enum AdminMultisigDataKey {
     CertificateContractId,
     RemovedIssuer(Address),
 }
+
+
+

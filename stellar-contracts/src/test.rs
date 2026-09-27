@@ -6,7 +6,7 @@ use soroban_sdk::{testutils::Address as _, Address, Env, String};
 #[test]
 fn test_issue_and_revoke_with_reason() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -36,7 +36,7 @@ fn test_issue_and_revoke_with_reason() {
 #[test]
 fn test_suspend_and_reinstate_with_reason() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -67,7 +67,7 @@ fn test_suspend_and_reinstate_with_reason() {
 #[test]
 fn test_cannot_suspend_non_active_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -91,7 +91,7 @@ fn test_cannot_suspend_non_active_certificate() {
 #[test]
 fn test_update_certificate_metadata() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -118,7 +118,7 @@ fn test_update_certificate_metadata() {
 #[test]
 fn test_reissue_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -159,7 +159,7 @@ fn test_reissue_certificate() {
 #[test]
 fn test_certificate_transfer_flow() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -236,7 +236,7 @@ fn test_certificate_transfer_flow() {
 #[test]
 fn test_transfer_with_revocation() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -276,7 +276,7 @@ fn test_transfer_with_revocation() {
 #[test]
 fn test_transfer_rejection() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -320,7 +320,7 @@ fn test_transfer_rejection() {
 #[test]
 fn test_transfer_cancellation() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -364,7 +364,7 @@ fn test_transfer_cancellation() {
 #[test]
 fn test_cannot_transfer_non_active_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -388,7 +388,7 @@ fn test_cannot_transfer_non_active_certificate() {
 #[test]
 fn test_multiple_transfers() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -436,7 +436,7 @@ fn test_multiple_transfers() {
 #[test]
 fn test_batch_verify_with_mixed_statuses() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -484,7 +484,7 @@ fn test_batch_verify_with_mixed_statuses() {
 #[test]
 fn test_certificate_version_tracking() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);

@@ -6,7 +6,7 @@ use soroban_sdk::{testutils::{Address as _, Events}, Address, Env, String, symbo
 #[test]
 fn test_status_transition_events() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
