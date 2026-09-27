@@ -35,7 +35,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "ci:check": "npm run lint && npm run typecheck && npm run test",
     "ci:build": "npm run build && npm run build:contracts",
-    "security:audit": "npm audit && cd backend && npm audit && cd ../frontend && npm audit"
+    "security:audit": "npm audit --audit-level=high && cd backend && npm audit --audit-level=high && cd ../frontend && npm audit --audit-level=high"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
@@ -46,7 +46,6 @@
     "@nestjs/platform-express": "^11.2.1",
     "bull": "^4.16.5",
     "handlebars": "^4.7.9",
-    "nodemailer": "^9.0.6",
-    "puppeteer": "^24.42.0"
+    "nodemailer": "^9.0.6"
   }
 }
