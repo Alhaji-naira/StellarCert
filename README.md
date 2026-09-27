@@ -230,6 +230,10 @@ bash
 cd frontend
 npm test # Unit tests
 npm run test:e2e # E2E tests
+Frontend Linting
+bash
+cd frontend
+npm run lint # ESLint 9 flat config (eslint.config.js)
 Stellar Contract Tests
 bash
 cd stellar-contracts
