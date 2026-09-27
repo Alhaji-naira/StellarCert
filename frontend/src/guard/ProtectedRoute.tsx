@@ -7,11 +7,16 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) => {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const location = useLocation();
 
   // Public verify path requires no auth
   if (location.pathname === "/verify") return <Outlet />;
+
+  // While AuthProvider is bootstrapping (one-time /auth/refresh on page load)
+  // don't make any routing decision — the parent AuthProvider already renders
+  // a full-screen spinner so the user never sees a flash of the login page.
+  if (isLoading) return null;
 
   // Not logged in - redirect to login and preserve destination
   if (!user) {

@@ -3,10 +3,18 @@ import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AuthProvider, useAuth } from './AuthContext';
 import { tokenStorage, notifyTokenRefreshed } from '../api/tokens';
+import { authApi } from '../api/endpoints';
 import { User, UserRole } from '../api/types';
 
 vi.mock('../api/endpoints', () => ({
   authApi: {
+    /**
+     * By default, simulate a page load with no valid refresh-token cookie
+     * (new visitor / logged-out session) so tests start unauthenticated.
+     * Individual tests can override this with `vi.mocked(authApi.bootstrapAuth).mockResolvedValueOnce(...)`.
+     */
+    bootstrapAuth: vi.fn().mockRejectedValue(new Error('No refresh cookie')),
+    // Keep the legacy alias so any remaining callers don't break.
     refresh: vi.fn().mockRejectedValue(new Error('No refresh cookie')),
   },
 }));
@@ -118,6 +126,51 @@ describe('AuthContext silent token refresh (#560)', () => {
       notifyTokenRefreshed(makeToken(-100), sampleUser);
     });
     // Expired token must not authenticate.
+    expect(screen.getByTestId('auth').textContent).toBe('false');
+  });
+});
+
+describe('AuthContext bootstrap on page load (#960)', () => {
+  it('restores an authenticated session when bootstrapAuth returns a valid token + user', async () => {
+    const token = makeToken(3600);
+    vi.mocked(authApi.bootstrapAuth).mockResolvedValueOnce({
+      accessToken: token,
+      user: sampleUser,
+    } as never);
+
+    renderAuth();
+
+    // Still loading — spinner is shown, not the consumer.
+    expect(screen.queryByTestId('auth')).toBeNull();
+
+    await act(async () => {});
+
+    expect(screen.getByTestId('auth').textContent).toBe('true');
+    expect(screen.getByTestId('user').textContent).toBe('alice@example.com');
+  });
+
+  it('starts unauthenticated when bootstrapAuth rejects (no refresh-token cookie)', async () => {
+    // Default mock already rejects — no override needed.
+    renderAuth();
+
+    await act(async () => {});
+
+    expect(screen.getByTestId('auth').textContent).toBe('false');
+    expect(screen.getByTestId('user').textContent).toBe('none');
+  });
+
+  it('starts unauthenticated when bootstrapAuth returns an already-expired token', async () => {
+    const expiredToken = makeToken(-60);
+    vi.mocked(authApi.bootstrapAuth).mockResolvedValueOnce({
+      accessToken: expiredToken,
+      user: sampleUser,
+    } as never);
+
+    renderAuth();
+
+    await act(async () => {});
+
+    // Expired token must not authenticate even if the server returned it.
     expect(screen.getByTestId('auth').textContent).toBe('false');
   });
 });
