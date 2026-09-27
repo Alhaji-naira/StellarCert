@@ -21,7 +21,7 @@ impl CertificateExistsStub {
 /// Register a minimal stub that satisfies `certificate_exists` cross-contract
 /// calls made by `revoke_certificate`.
 fn register_cert_stub(env: &Env) -> Address {
-    env.register_contract(None, CertificateExistsStub)
+    env.register(CertificateExistsStub, ())
 }
 
 fn setup() -> (Env, Address, Address) {
@@ -33,7 +33,7 @@ fn setup() -> (Env, Address, Address) {
 }
 
 fn make_client(env: &Env) -> (Address, CRLContractClient<'_>) {
-    let contract_id = env.register_contract(None, CRLContract);
+    let contract_id = env.register(CRLContract, ());
     let client = CRLContractClient::new(env, &contract_id);
     (contract_id, client)
 }
