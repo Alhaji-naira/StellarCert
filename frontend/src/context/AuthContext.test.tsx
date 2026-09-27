@@ -7,6 +7,7 @@ import { User, UserRole } from '../api/types';
 
 vi.mock('../api/endpoints', () => ({
   authApi: {
+    bootstrapAuth: vi.fn().mockRejectedValue(new Error('No refresh cookie')),
     refresh: vi.fn().mockRejectedValue(new Error('No refresh cookie')),
   },
 }));
@@ -118,6 +119,48 @@ describe('AuthContext silent token refresh (#560)', () => {
       notifyTokenRefreshed(makeToken(-100), sampleUser);
     });
     // Expired token must not authenticate.
+    expect(screen.getByTestId('auth').textContent).toBe('false');
+  });
+});
+
+
+describe('AuthContext bootstrap on page load (#960)', () => {
+  it('restores an authenticated session from bootstrapAuth', async () => {
+    const token = makeToken(3600);
+    vi.mocked(authApi.bootstrapAuth).mockResolvedValueOnce({
+      accessToken: token,
+      user: sampleUser,
+    } as never);
+
+    renderAuth();
+
+    expect(screen.queryByTestId('auth')).toBeNull();
+
+    await act(async () => {});
+
+    expect(screen.getByTestId('auth').textContent).toBe('true');
+    expect(screen.getByTestId('user').textContent).toBe('alice@example.com');
+  });
+
+  it('starts unauthenticated when bootstrapAuth rejects', async () => {
+    renderAuth();
+
+    await act(async () => {});
+
+    expect(screen.getByTestId('auth').textContent).toBe('false');
+    expect(screen.getByTestId('user').textContent).toBe('none');
+  });
+
+  it('rejects an already-expired bootstrap token', async () => {
+    vi.mocked(authApi.bootstrapAuth).mockResolvedValueOnce({
+      accessToken: makeToken(-60),
+      user: sampleUser,
+    } as never);
+
+    renderAuth();
+
+    await act(async () => {});
+
     expect(screen.getByTestId('auth').textContent).toBe('false');
   });
 });
