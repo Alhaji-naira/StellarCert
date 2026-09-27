@@ -79,35 +79,25 @@ const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(r
 /**
  * Refresh tokens using the HttpOnly cookie sent automatically by the browser.
  *
- * De-duplicated + cooldown-guarded: on page load the in-memory access token is
- * gone, so AuthContext rehydration AND every protected request's 401 handler
- * would each hit `/auth/refresh` (which is IP rate-limited) near-simultaneously,
- * tripping a 429. We coalesce concurrent callers onto a single in-flight request
- * and briefly back off after a failure so a page full of 401s can't hammer it.
+ * Concurrent callers are coalesced onto a single in-flight request so the
+ * IP-rate-limited `/auth/refresh` endpoint is never hit more than once at a
+ * time.  The cooldown guard that previously existed here was a workaround for
+ * the page-load race where both AuthContext rehydration and every unauthed
+ * request's 401 handler would independently fire a refresh simultaneously.
+ * That race is now prevented by `bootstrapAuth`: the app performs one explicit
+ * refresh during initial mount and gates all route rendering behind it, so by
+ * the time any protected component fires a request the token is already in
+ * memory.  The cooldown guard is therefore no longer needed.
  */
 let _refreshInFlight: Promise<AuthResponse> | null = null;
-let _refreshCooldownUntil = 0;
-const REFRESH_COOLDOWN_MS = 10_000;
 
 const refreshTokens = async (): Promise<AuthResponse> => {
-  if (Date.now() < _refreshCooldownUntil) {
-    const err: ApiError = {
-      message: "Session refresh temporarily unavailable",
-      statusCode: 401,
-    };
-    throw err;
-  }
   if (_refreshInFlight) return _refreshInFlight;
 
   _refreshInFlight = apiClient<AuthResponse>('/auth/refresh', {
     method: 'POST',
     skipAuth: true,
   })
-    .catch((err) => {
-      // Back off briefly so repeated 401s during this load don't spam refresh.
-      _refreshCooldownUntil = Date.now() + REFRESH_COOLDOWN_MS;
-      throw err;
-    })
     .finally(() => {
       _refreshInFlight = null;
     });
@@ -1000,8 +990,17 @@ export const registerApi = async (
 export const authApi = {
   login: loginApi,
   register: registerApi,
-  // Shares the de-duplicated/cooldown-guarded refresh so AuthContext rehydration
-  // and apiClient's 401 handler coalesce onto a single /auth/refresh request.
+  /**
+   * Called once during `AuthProvider` initial mount to establish the session.
+   * Uses the HttpOnly refresh-token cookie to obtain a fresh access token so
+   * that every subsequent protected request finds a valid token in memory and
+   * never has to fire a reactive 401 → refresh cycle on page load.
+   *
+   * Shares the same in-flight deduplication as `apiClient`'s 401 handler so
+   * React StrictMode's double-invocation of effects only sends one request.
+   */
+  bootstrapAuth: (): Promise<AuthResponse> => refreshTokens(),
+  // Still exposed so legacy callers (e.g. tests) keep working.
   refresh: (): Promise<AuthResponse> => refreshTokens(),
   logout: async (): Promise<void> => {
     try {

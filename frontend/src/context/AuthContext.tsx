@@ -45,45 +45,48 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user, accessToken]);
 
   useEffect(() => {
-    // Check token or rehydrate via refresh cookie on app load
-    const rehydrateOrCheck = async () => {
-      const currentToken = tokenStorage.getAccessToken();
-
-      if (currentToken && !isTokenExpired(currentToken)) {
-        setAccessTokenState(currentToken);
-        setIsLoading(false);
-      } else if (currentToken && isTokenExpired(currentToken)) {
-        console.warn('Access token expired, clearing authentication state');
-        tokenStorage.clearTokens();
-        setUserState(null);
-        setAccessTokenState(null);
-        setIsLoading(false);
-      } else {
-        // Attempt silent token refresh via HttpOnly cookie on initial load
-        try {
-          const response = await authApi.refresh();
-          if (response.accessToken && !isTokenExpired(response.accessToken)) {
-            tokenStorage.setAccessToken(response.accessToken);
-            setAccessTokenState(response.accessToken);
-            if (response.user) {
-              setUserState(response.user);
-            }
-          } else {
-            tokenStorage.clearTokens();
-            setUserState(null);
-            setAccessTokenState(null);
+    /**
+     * Bootstrap the session on every full page load.
+     *
+     * We always call `bootstrapAuth` (one POST /auth/refresh) rather than
+     * branching on whether an access token is already in memory.  The
+     * in-memory token is gone after every hard refresh, so any fast-path
+     * that skips the network call would leave `user` unpopulated and force
+     * protected routes to redirect to /login.
+     *
+     * `AuthProvider` renders a full-screen spinner while `isLoading` is true,
+     * so no route — and therefore no protected API call — can mount before
+     * this resolves.  That eliminates the page-load race that previously
+     * required the cooldown guard in `refreshTokens` (#960).
+     */
+    const bootstrap = async () => {
+      try {
+        const response = await authApi.bootstrapAuth();
+        if (response.accessToken && !isTokenExpired(response.accessToken)) {
+          tokenStorage.setAccessToken(response.accessToken);
+          setAccessTokenState(response.accessToken);
+          if (response.user) {
+            setUserState(response.user);
           }
-        } catch {
+        } else {
+          // Server returned a token but it's already expired — treat as
+          // unauthenticated so the user gets a clean login prompt.
           tokenStorage.clearTokens();
           setUserState(null);
           setAccessTokenState(null);
-        } finally {
-          setIsLoading(false);
         }
+      } catch {
+        // No valid refresh-token cookie (new visitor, logged-out user, or
+        // expired session) — start unauthenticated.
+        tokenStorage.clearTokens();
+        setUserState(null);
+        setAccessTokenState(null);
+      } finally {
+        setIsLoading(false);
       }
     };
 
-    rehydrateOrCheck();
+    bootstrap();
 
     // Keep AuthContext in sync when apiClient silently refreshes the access token.
     setTokenRefreshCallback((newAccessToken, refreshedUser) => {
