@@ -12,6 +12,10 @@ fn test_admin_multisig_flow() {
     let contract_id = env.register_contract(None, AdminMultisigContract);
     let client = AdminMultisigContractClient::new(&env, &contract_id);
 
+    if threshold == 0 || threshold > signers.len() as u32 {
+    panic!("Threshold cannot exceed registered signer count");
+}
+
     let admin1 = Address::generate(&env);
     let admin2 = Address::generate(&env);
     let admin3 = Address::generate(&env);
@@ -288,4 +292,20 @@ fn test_only_proposer_can_cancel() {
 
     client.propose_action(&proposal_id, &admin1, &action);
     client.cancel_proposal(&proposal_id, &admin2);
+}
+
+#[test]
+#[should_panic(expected = "Threshold cannot exceed registered signer count")]
+fn test_init_rejects_threshold_above_signer_count() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin1, admin2, admin3]); // 3 signers
+
+    env.mock_all_auths();
+    client.init_admin_multisig(&5, &signers, &10); // threshold=5 > 3 signers → panic
 }
