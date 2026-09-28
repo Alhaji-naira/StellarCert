@@ -28,6 +28,7 @@ describe('CertificateService', () => {
     getOne: jest.fn().mockResolvedValue(null),
   };
   const certificateRepository = {
+    update: jest.fn(),
     createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
   };
   const verificationRepository = {};
@@ -39,6 +40,10 @@ describe('CertificateService', () => {
   };
   const configService = {
     get: jest.fn(),
+  };
+  const sorobanService = {
+    isConfigured: jest.fn().mockReturnValue(false),
+    issueCertificate: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -83,10 +88,7 @@ describe('CertificateService', () => {
         },
         {
           provide: SorobanService,
-          useValue: {
-            isConfigured: jest.fn().mockReturnValue(false),
-            issueCertificate: jest.fn(),
-          },
+          useValue: sorobanService,
         },
       ],
     }).compile();
@@ -287,6 +289,80 @@ describe('CertificateService', () => {
       const issuerCalls = calls.filter((c: any[]) => c[0].includes('issuerId'));
       expect(issuerCalls).toHaveLength(0);
       expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_EXPORT_LIMIT);
+    });
+  });
+
+  describe('syncChain (#733)', () => {
+    let certificate: Certificate;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      sorobanService.isConfigured.mockReturnValue(false);
+      certificate = {
+        id: 'cert-1',
+        verificationCode: 'AB12CD34',
+        issuerStellarAddress: 'GISSUER',
+        recipientStellarAddress: 'GRECIPIENT',
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+        stellarTransactionHash: undefined,
+      } as unknown as Certificate;
+    });
+
+    it('returns the existing hash without touching the chain when already synced', async () => {
+      const synced = {
+        ...certificate,
+        stellarTransactionHash: 'abc123',
+      } as unknown as Certificate;
+      jest.spyOn(service, 'findOne').mockResolvedValue(synced);
+
+      const result = await service.syncChain('cert-1');
+
+      expect(result.alreadySynced).toBe(true);
+      expect(result.stellarTransactionHash).toBe('abc123');
+      expect(sorobanService.issueCertificate).not.toHaveBeenCalled();
+      expect(certificateRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to retry when Soroban is not configured', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(certificate);
+
+      await expect(service.syncChain('cert-1')).rejects.toThrow(
+        /not configured/i,
+      );
+      expect(certificateRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('persists the transaction hash returned by a successful retry', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(certificate);
+      sorobanService.isConfigured.mockReturnValue(true);
+      sorobanService.issueCertificate.mockResolvedValue('deadbeef');
+      certificateRepository.update.mockResolvedValue({ affected: 1 });
+
+      const result = await service.syncChain('cert-1');
+
+      expect(sorobanService.issueCertificate).toHaveBeenCalledWith(
+        'cert-1',
+        'GISSUER',
+        'GRECIPIENT',
+        'AB12CD34',
+        Math.floor(new Date('2027-01-01T00:00:00.000Z').getTime() / 1000),
+      );
+      expect(certificateRepository.update).toHaveBeenCalledWith('cert-1', {
+        stellarTransactionHash: 'deadbeef',
+      });
+      expect(result.alreadySynced).toBe(false);
+      expect(result.stellarTransactionHash).toBe('deadbeef');
+    });
+
+    it('fails loudly when the retry still cannot reach the chain', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(certificate);
+      sorobanService.isConfigured.mockReturnValue(true);
+      sorobanService.issueCertificate.mockResolvedValue(null);
+
+      await expect(service.syncChain('cert-1')).rejects.toThrow(
+        /on-chain issuance failed/i,
+      );
+      expect(certificateRepository.update).not.toHaveBeenCalled();
     });
   });
 });

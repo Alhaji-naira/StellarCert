@@ -47,6 +47,7 @@ export class CryptoUtils {
 
   /**
    * Generates a cryptographically secure random alphanumeric code
+   * using uppercase letters and digits only
    * (useful for verification codes, certificate IDs)
    * @param length - Length of the code (default: 8)
    */

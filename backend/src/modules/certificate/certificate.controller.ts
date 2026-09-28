@@ -325,6 +325,23 @@ export class CertificateController {
     return this.certificateService.getStellarTransactionData(id);
   }
 
+  @Post(':id/sync-chain')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ISSUER, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Re-attempt on-chain issuance for a certificate with no Stellar transaction hash',
+  })
+  @ApiParam({ name: 'id', description: 'Certificate UUID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Certificate state reconciled with the Stellar network',
+  })
+  async syncChain(@Param('id', ParseUUIDPipe) id: string) {
+    return this.certificateService.syncChain(id);
+  }
+
   @Get(':id/verification-history')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ISSUER, UserRole.AUDITOR)
