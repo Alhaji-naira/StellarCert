@@ -79,7 +79,7 @@ const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(r
  *
  * De-duplicated + cooldown-guarded: on page load the in-memory access token is
  * gone, so AuthContext rehydration AND every protected request's 401 handler
- * would each hit `/auth/refresh` (which is IP rate-limited) near-simultaneously,
+ * would each hit `/users/refresh-token` (which is IP rate-limited) near-simultaneously,
  * tripping a 429. We coalesce concurrent callers onto a single in-flight request
  * and briefly back off after a failure so a page full of 401s can't hammer it.
  */
@@ -97,7 +97,7 @@ const refreshTokens = async (): Promise<AuthResponse> => {
   }
   if (_refreshInFlight) return _refreshInFlight;
 
-  _refreshInFlight = apiClient<AuthResponse>('/auth/refresh', {
+  _refreshInFlight = apiClient<AuthResponse>('/users/refresh-token', {
     method: 'POST',
     skipAuth: true,
   })
@@ -999,7 +999,7 @@ export const authApi = {
   login: loginApi,
   register: registerApi,
   // Shares the de-duplicated/cooldown-guarded refresh so AuthContext rehydration
-  // and apiClient's 401 handler coalesce onto a single /auth/refresh request.
+  // and apiClient's 401 handler coalesce onto a single /users/refresh-token request.
   refresh: (): Promise<AuthResponse> => refreshTokens(),
   logout: async (): Promise<void> => {
     try {
