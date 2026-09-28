@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { certificateApi, auditApi } from '../api';
 import type { Certificate, CertificateExportFilters, ActivityItem } from '../api';
+import Modal from './Modal';
 
 type SortField = 'recipientName' | 'title' | 'issuerName' | 'issueDate' | 'status' | 'serialNumber';
 type SortOrder = 'asc' | 'desc';
@@ -261,6 +262,13 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         setShowRevokeModal(true);
     };
 
+    const closeRevokeModal = () => {
+        setShowRevokeModal(false);
+        setRevokeReason('');
+        setRevokingCertIds([]);
+        setActionError(null);
+    };
+
     const confirmRevoke = async () => {
         setActionError(null);
         setPendingAction('revoke');
@@ -285,6 +293,13 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     const handleFreeze = (certId: string) => {
         setFreezingCertId(certId);
         setShowFreezeModal(true);
+    };
+
+    const closeFreezeModal = () => {
+        setShowFreezeModal(false);
+        setFreezeReason('');
+        setFreezingCertId(null);
+        setActionError(null);
     };
 
     const confirmFreeze = async () => {
@@ -337,6 +352,11 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         setShowTransferModal(true);
     };
 
+    const closeTransferModal = () => {
+        setShowTransferModal(false);
+        setActionError(null);
+    };
+
     const confirmTransfer = async () => {
         setActionError(null);
         setPendingAction('transfer');
@@ -371,6 +391,12 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             setLoadingHistory(false);
         }
     };
+
+    const closeHistoryModal = () => {
+        setShowHistoryModal(false);
+        setActionError(null);
+    };
+
     const getStatusBadge = (status: string) => {
         const baseClasses = 'px-2 py-1 rounded-full text-xs font-medium';
         switch (status) {
@@ -752,363 +778,385 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                 </div>
             </div>
 
-            {/* Freeze Modal */}
-            {showFreezeModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-slate-900 rounded-lg p-6 max-w-md w-full mx-4">
-                        <div className="flex items-center gap-2 mb-4">
-                            <Snowflake className="w-6 h-6 text-blue-600" />
-                            <h3 className="text-lg font-semibold dark:text-white">Freeze Certificate</h3>
-                        </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                            This will temporarily freeze the certificate during a dispute. You can unfreeze it at any time.
-                        </p>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    Reason for freezing
-                                </label>
-                                <textarea
-                                    value={freezeReason}
-                                    onChange={(e) => setFreezeReason(e.target.value)}
-                                    rows={3}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
-                                    placeholder="Enter the reason for freezing..."
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    Freeze Duration (days)
-                                </label>
-                                <input
-                                    type="number"
-                                    min={1}
-                                    max={90}
-                                    value={freezeDuration}
-                                    onChange={(e) => setFreezeDuration(Number(e.target.value))}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
-                                />
-                                <p className="text-xs text-gray-500 mt-1">Maximum 90 days. Leave empty for indefinite.</p>
-                            </div>
-                        </div>
-                        <ActionError message={actionError} className="mt-4" />
-                        <div className="flex gap-3 mt-6">
-                            <button
-                                onClick={() => { setShowFreezeModal(false); setFreezeReason(''); setFreezingCertId(null); setActionError(null); }}
-                                className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={confirmFreeze}
-                                disabled={!freezeReason || pendingAction === 'freeze'}
-                                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                            >
-                                {pendingAction === 'freeze' ? 'Freezing…' : 'Freeze'}
-                            </button>
-                        </div>
+            <Modal
+                isOpen={showFreezeModal}
+                onClose={closeFreezeModal}
+                labelledBy="freeze-certificate-title"
+                wrapperClassName="fixed inset-0 z-50 flex items-center justify-center"
+                overlayClassName="absolute inset-0 bg-black/50"
+                dialogClassName="relative bg-white dark:bg-slate-900 rounded-lg p-6 max-w-md w-full mx-4"
+            >
+                <div className="flex items-center gap-2 mb-4">
+                    <Snowflake className="w-6 h-6 text-blue-600" />
+                    <h3 id="freeze-certificate-title" className="text-lg font-semibold dark:text-white">Freeze Certificate</h3>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    This will temporarily freeze the certificate during a dispute. You can unfreeze it at any time.
+                </p>
+                <div className="space-y-4">
+                    <div>
+                        <label htmlFor="freeze-reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Reason for freezing
+                        </label>
+                        <textarea
+                            id="freeze-reason"
+                            value={freezeReason}
+                            onChange={(e) => setFreezeReason(e.target.value)}
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+                            placeholder="Enter the reason for freezing..."
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="freeze-duration" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Freeze Duration (days)
+                        </label>
+                        <input
+                            id="freeze-duration"
+                            type="number"
+                            min={1}
+                            max={90}
+                            value={freezeDuration}
+                            onChange={(e) => setFreezeDuration(Number(e.target.value))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Maximum 90 days. Leave empty for indefinite.</p>
                     </div>
                 </div>
-            )}
+                <ActionError message={actionError} className="mt-4" />
+                <div className="flex gap-3 mt-6">
+                    <button
+                        type="button"
+                        onClick={closeFreezeModal}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={confirmFreeze}
+                        disabled={!freezeReason || pendingAction === 'freeze'}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                        {pendingAction === 'freeze' ? 'Freezing…' : 'Freeze'}
+                    </button>
+                </div>
+            </Modal>
 
-            {/* Revoke Modal */}
-            {showRevokeModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-slate-900 rounded-lg p-6 max-w-md w-full mx-4">
-                        <div className="flex items-center gap-2 mb-4">
-                            <AlertTriangle className="w-6 h-6 text-red-600" />
-                            <h3 className="text-lg font-semibold dark:text-white">Revoke Certificate{revokingCertIds.length > 1 ? 's' : ''}</h3>
+            <Modal
+                isOpen={showRevokeModal}
+                onClose={closeRevokeModal}
+                labelledBy="revoke-certificate-title"
+                wrapperClassName="fixed inset-0 z-50 flex items-center justify-center"
+                overlayClassName="absolute inset-0 bg-black/50"
+                dialogClassName="relative bg-white dark:bg-slate-900 rounded-lg p-6 max-w-md w-full mx-4"
+            >
+                <div className="flex items-center gap-2 mb-4">
+                    <AlertTriangle className="w-6 h-6 text-red-600" />
+                    <h3 id="revoke-certificate-title" className="text-lg font-semibold dark:text-white">Revoke Certificate{revokingCertIds.length > 1 ? 's' : ''}</h3>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    Are you sure you want to revoke {revokingCertIds.length} certificate{revokingCertIds.length > 1 ? 's' : ''}? This action cannot be undone.
+                </p>
+                <div>
+                    <label htmlFor="revoke-reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Reason for revocation
+                    </label>
+                    <textarea
+                        id="revoke-reason"
+                        value={revokeReason}
+                        onChange={(e) => setRevokeReason(e.target.value)}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+                        placeholder="Enter the reason for revocation..."
+                    />
+                </div>
+                <ActionError message={actionError} className="mt-4" />
+                <div className="flex gap-3 mt-6">
+                    <button
+                        type="button"
+                        onClick={closeRevokeModal}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={confirmRevoke}
+                        disabled={pendingAction === 'revoke'}
+                        className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                    >
+                        {pendingAction === 'revoke' ? 'Revoking…' : 'Revoke'}
+                    </button>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={showTransferModal}
+                onClose={closeTransferModal}
+                labelledBy="transfer-certificate-title"
+                wrapperClassName="fixed inset-0 z-50 flex items-center justify-center"
+                overlayClassName="absolute inset-0 bg-black/50"
+                dialogClassName="relative bg-white dark:bg-slate-900 rounded-lg p-6 max-w-md w-full mx-4"
+            >
+                <div className="flex items-center gap-2 mb-4">
+                    <Send className="w-6 h-6 text-purple-600" />
+                    <h3 id="transfer-certificate-title" className="text-lg font-semibold dark:text-white">Initiate Transfer</h3>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    Transfer ownership of this certificate to a new recipient. The new owner will need to approve the transfer.
+                </p>
+                <div className="space-y-4">
+                    <div>
+                        <label htmlFor="transfer-owner-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            New Owner Name
+                        </label>
+                        <input
+                            id="transfer-owner-name"
+                            type="text"
+                            value={transferData.newOwnerName}
+                            onChange={(e) => setTransferData({ ...transferData, newOwnerName: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+                            placeholder="Recipient's full name"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="transfer-owner-email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            New Owner Email
+                        </label>
+                        <input
+                            id="transfer-owner-email"
+                            type="email"
+                            value={transferData.newOwnerEmail}
+                            onChange={(e) => setTransferData({ ...transferData, newOwnerEmail: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+                            placeholder="recipient@example.com"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="transfer-reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Reason (Optional)
+                        </label>
+                        <textarea
+                            id="transfer-reason"
+                            value={transferData.reason}
+                            onChange={(e) => setTransferData({ ...transferData, reason: e.target.value })}
+                            rows={2}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+                            placeholder="e.g., Correction of name, change of ownership..."
+                        />
+                    </div>
+                </div>
+                <ActionError message={actionError} className="mt-4" />
+                <div className="flex gap-3 mt-6">
+                    <button
+                        type="button"
+                        onClick={closeTransferModal}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={confirmTransfer}
+                        disabled={!transferData.newOwnerEmail || !transferData.newOwnerName || pendingAction === 'transfer'}
+                        className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+                    >
+                        {pendingAction === 'transfer' ? 'Initiating…' : 'Initiate Transfer'}
+                    </button>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={showHistoryModal}
+                onClose={closeHistoryModal}
+                labelledBy="certificate-history-title"
+                wrapperClassName="fixed inset-0 z-50 flex items-center justify-center"
+                overlayClassName="absolute inset-0 bg-black/50"
+                dialogClassName="relative bg-white dark:bg-slate-900 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+            >
+                <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                        <History className="w-6 h-6 text-blue-600" />
+                        <h3 id="certificate-history-title" className="text-lg font-semibold dark:text-white">Certificate History</h3>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={closeHistoryModal}
+                        className="text-gray-500 hover:text-gray-700 dark:text-gray-400"
+                        aria-label="Close certificate history"
+                    >
+                        <XCircle className="w-6 h-6" />
+                    </button>
+                </div>
+
+                {loadingHistory ? (
+                    <div className="flex justify-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    </div>
+                ) : actionError ? (
+                    <ActionError message={actionError} />
+                ) : certHistory.length === 0 ? (
+                    <p className="text-center py-8 text-gray-500 dark:text-gray-400">No history found for this certificate.</p>
+                ) : (
+                    <div className="space-y-6">
+                        {certHistory.map((item, index) => (
+                            <div key={index} className="flex gap-4">
+                                <div className="flex flex-col items-center">
+                                    <div className="w-3 h-3 bg-blue-600 rounded-full mt-1.5"></div>
+                                    {index !== certHistory.length - 1 && (
+                                        <div className="w-0.5 h-full bg-gray-200 dark:bg-slate-700 my-1"></div>
+                                    )}
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium dark:text-white capitalize">
+                                        {item.type.replace('_', ' ')}
+                                    </p>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                                        {item.description}
+                                    </p>
+                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                        {new Date(item.date).toLocaleString()}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <div className="mt-8">
+                    <button
+                        type="button"
+                        onClick={closeHistoryModal}
+                        className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white"
+                    >
+                        Close
+                    </button>
+                </div>
+            </Modal>
+
+            {viewingCertificate && (
+                <Modal
+                    isOpen
+                    onClose={() => setViewingCertificate(null)}
+                    labelledBy="certificate-details-title"
+                    wrapperClassName="fixed inset-0 z-50 flex items-center justify-center"
+                    overlayClassName="absolute inset-0 bg-black/50"
+                    dialogClassName="relative bg-white dark:bg-slate-900 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+                >
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-2">
+                            <FileText className="w-6 h-6 text-gray-600 dark:text-gray-300" />
+                            <h3 id="certificate-details-title" className="text-lg font-semibold dark:text-white">Certificate Details</h3>
                         </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                            Are you sure you want to revoke {revokingCertIds.length} certificate{revokingCertIds.length > 1 ? 's' : ''}? This action cannot be undone.
-                        </p>
+                        <button
+                            type="button"
+                            onClick={() => setViewingCertificate(null)}
+                            className="text-gray-500 hover:text-gray-700 dark:text-gray-400"
+                            aria-label="Close certificate details"
+                        >
+                            <XCircle className="w-6 h-6" />
+                        </button>
+                    </div>
+
+                    <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Reason for revocation
-                            </label>
-                            <textarea
-                                value={revokeReason}
-                                onChange={(e) => setRevokeReason(e.target.value)}
-                                rows={3}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
-                                placeholder="Enter the reason for revocation..."
-                            />
+                            <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Serial Number</dt>
+                            <dd className="mt-1 font-mono text-sm text-gray-900 dark:text-white break-all">
+                                {viewingCertificate.serialNumber}
+                            </dd>
                         </div>
-                        <ActionError message={actionError} className="mt-4" />
-                        <div className="flex gap-3 mt-6">
-                            <button
-                                onClick={() => { setShowRevokeModal(false); setRevokeReason(''); setRevokingCertIds([]); setActionError(null); }}
-                                className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={confirmRevoke}
-                                disabled={pendingAction === 'revoke'}
-                                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                            >
-                                {pendingAction === 'revoke' ? 'Revoking…' : 'Revoke'}
-                            </button>
+                        <div>
+                            <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Status</dt>
+                            <dd className="mt-1">{getStatusBadge(viewingCertificate.status)}</dd>
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Transfer Modal */}
-            {showTransferModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-slate-900 rounded-lg p-6 max-w-md w-full mx-4">
-                        <div className="flex items-center gap-2 mb-4">
-                            <Send className="w-6 h-6 text-purple-600" />
-                            <h3 className="text-lg font-semibold dark:text-white">Initiate Transfer</h3>
+                        <div>
+                            <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Recipient</dt>
+                            <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                                {viewingCertificate.recipientName}
+                                {viewingCertificate.recipientEmail && (
+                                    <span className="block text-xs text-gray-500 dark:text-slate-400">
+                                        {viewingCertificate.recipientEmail}
+                                    </span>
+                                )}
+                            </dd>
                         </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                            Transfer ownership of this certificate to a new recipient. The new owner will need to approve the transfer.
-                        </p>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    New Owner Name
-                                </label>
-                                <input
-                                    type="text"
-                                    value={transferData.newOwnerName}
-                                    onChange={(e) => setTransferData({ ...transferData, newOwnerName: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
-                                    placeholder="Recipient's full name"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    New Owner Email
-                                </label>
-                                <input
-                                    type="email"
-                                    value={transferData.newOwnerEmail}
-                                    onChange={(e) => setTransferData({ ...transferData, newOwnerEmail: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
-                                    placeholder="recipient@example.com"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    Reason (Optional)
-                                </label>
-                                <textarea
-                                    value={transferData.reason}
-                                    onChange={(e) => setTransferData({ ...transferData, reason: e.target.value })}
-                                    rows={2}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
-                                    placeholder="e.g., Correction of name, change of ownership..."
-                                />
-                            </div>
+                        <div>
+                            <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Issuer</dt>
+                            <dd className="mt-1 text-sm text-gray-900 dark:text-white">{viewingCertificate.issuerName}</dd>
                         </div>
-                        <ActionError message={actionError} className="mt-4" />
-                        <div className="flex gap-3 mt-6">
-                            <button
-                                onClick={() => { setShowTransferModal(false); setActionError(null); }}
-                                className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={confirmTransfer}
-                                disabled={!transferData.newOwnerEmail || !transferData.newOwnerName || pendingAction === 'transfer'}
-                                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
-                            >
-                                {pendingAction === 'transfer' ? 'Initiating…' : 'Initiate Transfer'}
-                            </button>
+                        <div>
+                            <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Title</dt>
+                            <dd className="mt-1 text-sm text-gray-900 dark:text-white">{viewingCertificate.title}</dd>
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* History Modal */}
-            {showHistoryModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-slate-900 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-                        <div className="flex items-center justify-between mb-6">
-                            <div className="flex items-center gap-2">
-                                <History className="w-6 h-6 text-blue-600" />
-                                <h3 className="text-lg font-semibold dark:text-white">Certificate History</h3>
-                            </div>
-                            <button 
-                                onClick={() => { setShowHistoryModal(false); setActionError(null); }}
-                                className="text-gray-500 hover:text-gray-700 dark:text-gray-400"
-                            >
-                                <XCircle className="w-6 h-6" />
-                            </button>
+                        <div>
+                            <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Course</dt>
+                            <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                                {viewingCertificate.courseName || '—'}
+                            </dd>
                         </div>
-
-                        {loadingHistory ? (
-                            <div className="flex justify-center py-8">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                            </div>
-                        ) : actionError ? (
-                            <ActionError message={actionError} />
-                        ) : certHistory.length === 0 ? (
-                            <p className="text-center py-8 text-gray-500 dark:text-gray-400">No history found for this certificate.</p>
-                        ) : (
-                            <div className="space-y-6">
-                                {certHistory.map((item, index) => (
-                                    <div key={index} className="flex gap-4">
-                                        <div className="flex flex-col items-center">
-                                            <div className="w-3 h-3 bg-blue-600 rounded-full mt-1.5"></div>
-                                            {index !== certHistory.length - 1 && (
-                                                <div className="w-0.5 h-full bg-gray-200 dark:bg-slate-700 my-1"></div>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <p className="text-sm font-medium dark:text-white capitalize">
-                                                {item.type.replace('_', ' ')}
-                                            </p>
-                                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                                                {item.description}
-                                            </p>
-                                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                                {new Date(item.date).toLocaleString()}
-                                            </p>
-                                        </div>
-                                    </div>
-                                ))}
+                        <div>
+                            <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Issued</dt>
+                            <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                                {new Date(viewingCertificate.issueDate).toLocaleDateString()}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Expires</dt>
+                            <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                                {viewingCertificate.expiryDate
+                                    ? new Date(viewingCertificate.expiryDate).toLocaleDateString()
+                                    : 'No expiry'}
+                            </dd>
+                        </div>
+                        {viewingCertificate.status === 'frozen' && viewingCertificate.freezeReason && (
+                            <div className="sm:col-span-2">
+                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Freeze Reason</dt>
+                                <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                                    {viewingCertificate.freezeReason}
+                                </dd>
                             </div>
                         )}
+                        {viewingCertificate.txHash && (
+                            <div className="sm:col-span-2">
+                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Transaction Hash</dt>
+                                <dd className="mt-1 font-mono text-xs text-gray-900 dark:text-white break-all">
+                                    {viewingCertificate.txHash}
+                                </dd>
+                            </div>
+                        )}
+                        {viewingCertificate.cid && (
+                            <div className="sm:col-span-2">
+                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">IPFS CID</dt>
+                                <dd className="mt-1 font-mono text-xs text-gray-900 dark:text-white break-all">
+                                    {viewingCertificate.cid}
+                                </dd>
+                            </div>
+                        )}
+                    </dl>
 
-                        <div className="mt-8">
-                            <button
-                                onClick={() => { setShowHistoryModal(false); setActionError(null); }}
-                                className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white"
+                    <div className="flex gap-3 mt-6">
+                        {viewingCertificate.pdfUrl && (
+                            <a
+                                href={viewingCertificate.pdfUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-center"
                             >
-                                Close
-                            </button>
-                        </div>
+                                Open Certificate File
+                            </a>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => setViewingCertificate(null)}
+                            className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white"
+                        >
+                            Close
+                        </button>
                     </div>
-                </div>
-            )}
-
-            {/* Certificate Detail Modal */}
-            {viewingCertificate && (
-                <div
-                    className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Certificate details"
-                >
-                    <div className="bg-white dark:bg-slate-900 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-                        <div className="flex items-center justify-between mb-6">
-                            <div className="flex items-center gap-2">
-                                <FileText className="w-6 h-6 text-gray-600 dark:text-gray-300" />
-                                <h3 className="text-lg font-semibold dark:text-white">Certificate Details</h3>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setViewingCertificate(null)}
-                                className="text-gray-500 hover:text-gray-700 dark:text-gray-400"
-                                aria-label="Close certificate details"
-                            >
-                                <XCircle className="w-6 h-6" />
-                            </button>
-                        </div>
-
-                        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div>
-                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Serial Number</dt>
-                                <dd className="mt-1 font-mono text-sm text-gray-900 dark:text-white break-all">
-                                    {viewingCertificate.serialNumber}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Status</dt>
-                                <dd className="mt-1">{getStatusBadge(viewingCertificate.status)}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Recipient</dt>
-                                <dd className="mt-1 text-sm text-gray-900 dark:text-white">
-                                    {viewingCertificate.recipientName}
-                                    {viewingCertificate.recipientEmail && (
-                                        <span className="block text-xs text-gray-500 dark:text-slate-400">
-                                            {viewingCertificate.recipientEmail}
-                                        </span>
-                                    )}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Issuer</dt>
-                                <dd className="mt-1 text-sm text-gray-900 dark:text-white">{viewingCertificate.issuerName}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Title</dt>
-                                <dd className="mt-1 text-sm text-gray-900 dark:text-white">{viewingCertificate.title}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Course</dt>
-                                <dd className="mt-1 text-sm text-gray-900 dark:text-white">
-                                    {viewingCertificate.courseName || '—'}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Issued</dt>
-                                <dd className="mt-1 text-sm text-gray-900 dark:text-white">
-                                    {new Date(viewingCertificate.issueDate).toLocaleDateString()}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Expires</dt>
-                                <dd className="mt-1 text-sm text-gray-900 dark:text-white">
-                                    {viewingCertificate.expiryDate
-                                        ? new Date(viewingCertificate.expiryDate).toLocaleDateString()
-                                        : 'No expiry'}
-                                </dd>
-                            </div>
-                            {viewingCertificate.status === 'frozen' && viewingCertificate.freezeReason && (
-                                <div className="sm:col-span-2">
-                                    <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Freeze Reason</dt>
-                                    <dd className="mt-1 text-sm text-gray-900 dark:text-white">
-                                        {viewingCertificate.freezeReason}
-                                    </dd>
-                                </div>
-                            )}
-                            {viewingCertificate.txHash && (
-                                <div className="sm:col-span-2">
-                                    <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Transaction Hash</dt>
-                                    <dd className="mt-1 font-mono text-xs text-gray-900 dark:text-white break-all">
-                                        {viewingCertificate.txHash}
-                                    </dd>
-                                </div>
-                            )}
-                            {viewingCertificate.cid && (
-                                <div className="sm:col-span-2">
-                                    <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">IPFS CID</dt>
-                                    <dd className="mt-1 font-mono text-xs text-gray-900 dark:text-white break-all">
-                                        {viewingCertificate.cid}
-                                    </dd>
-                                </div>
-                            )}
-                        </dl>
-
-                        <div className="flex gap-3 mt-6">
-                            {viewingCertificate.pdfUrl && (
-                                <a
-                                    href={viewingCertificate.pdfUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-center"
-                                >
-                                    Open Certificate File
-                                </a>
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => setViewingCertificate(null)}
-                                className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                </Modal>
             )}
         </div>
     );
