@@ -3,10 +3,40 @@ import { User } from '../api/types';
 import { tokenStorage, setTokenRefreshCallback } from '../api/tokens';
 import { authApi } from '../api/endpoints';
 
-// Helper function to check if JWT token is expired
-const isTokenExpired = (token: string): boolean => {
+// Helper function to decode JWT payload safely (handling base64url characters - and _ and missing padding)
+export const decodeJwtPayload = (token: string): any => {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    throw new Error('Invalid JWT format');
+  }
+  let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  const padLength = (4 - (base64.length % 4)) % 4;
+  base64 += '='.repeat(padLength);
+
+  let jsonStr: string;
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
+    jsonStr = decodeURIComponent(
+      Array.prototype.map
+        .call(
+          atob(base64),
+          (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2),
+        )
+        .join(''),
+    );
+  } catch {
+    jsonStr = atob(base64);
+  }
+
+  return JSON.parse(jsonStr);
+};
+
+// Helper function to check if JWT token is expired
+export const isTokenExpired = (token: string): boolean => {
+  try {
+    const payload = decodeJwtPayload(token);
+    if (!payload || typeof payload.exp !== 'number') {
+      return true;
+    }
     const currentTime = Date.now() / 1000;
     return payload.exp < currentTime;
   } catch {
