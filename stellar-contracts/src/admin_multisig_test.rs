@@ -12,10 +12,6 @@ fn test_admin_multisig_flow() {
     let contract_id = env.register_contract(None, AdminMultisigContract);
     let client = AdminMultisigContractClient::new(&env, &contract_id);
 
-    if threshold == 0 || threshold > signers.len() as u32 {
-    panic!("Threshold cannot exceed registered signer count");
-}
-
     let admin1 = Address::generate(&env);
     let admin2 = Address::generate(&env);
     let admin3 = Address::generate(&env);
