@@ -9,14 +9,11 @@ pub use types::{
     CertPaginatedResult, Certificate, CertificateFrozenEvent, CertificateIssuedEvent,
     CertificateReinstatedEvent, CertificateReissuedEvent, CertificateRevokedEvent,
     CertificateStatus, CertificateSuspendedEvent, CertificateTransfer, CertificateUnfrozenEvent,
-    CertificateVersion, ContractVersion, DataKey, MultisigConfig, OptionalRequestStatus,
-    PaginatedResult, Pagination, PendingRequest, RequestStatus, SignatureResult,
-    TransferAcceptedEvent, TransferCompletedEvent, TransferHistoryEntry, TransferStatus,
-    VerificationReport, VerificationResult,
+    CertificateVersion, ContractVersion, DataKey, MultisigConfig, OptionalCertificateStatus,
+    OptionalRequestStatus, PaginatedResult, Pagination, PendingRequest, RequestStatus,
+    SignatureResult, TransferAcceptedEvent, TransferCompletedEvent, TransferHistoryEntry,
+    TransferStatus, VerificationReport, VerificationResult,
 };
-
-// mod metadata;
-// pub use metadata::*;
 
 mod multisig;
 // MultisigCertificateContract is the only public item in multisig.rs
@@ -31,16 +28,23 @@ pub mod persistent;
 mod admin_multisig;
 // Explicit re-exports replace `pub use admin_multisig::*`
 pub use admin_multisig::{
-    AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigDataKey, AdminProposal,
-    AdminProposalStatus, ProposalApprovedEvent, ProposalCanceledEvent, ProposalCreatedEvent,
+    AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigContractClient,
+    AdminMultisigDataKey, AdminProposal, AdminProposalStatus, ProposalApprovedEvent,
+    ProposalCanceledEvent, ProposalCreatedEvent,
 };
 
 #[cfg(test)]
+mod admin_multisig_test;
+#[cfg(test)]
 mod crl_test;
+#[cfg(test)]
+mod issuer_management_test;
 #[cfg(test)]
 mod issuer_test;
 #[cfg(test)]
 mod multisig_test;
+#[cfg(test)]
+mod test;
 
 #[contract]
 pub struct CertificateContract;
@@ -347,6 +351,43 @@ impl CertificateContract {
         );
     }
 
+    /// Check whether a certificate is valid, returning (is_valid, status, reason).
+    /// Shared helper used by both `is_valid` and `batch_verify_certificates`.
+    fn check_validity(env: &Env, cert: &Certificate) -> (bool, CertificateStatus, Option<String>) {
+        if let Some(expires) = cert.expires_at {
+            if env.ledger().timestamp() >= expires {
+                return (
+                    false,
+                    CertificateStatus::Expired,
+                    Some(String::from_str(env, "expired")),
+                );
+            }
+        }
+        match cert.status {
+            CertificateStatus::Active => (true, CertificateStatus::Active, None),
+            CertificateStatus::Revoked => (
+                false,
+                CertificateStatus::Revoked,
+                cert.revocation_reason
+                    .clone()
+                    .or_else(|| cert.status_reason.clone()),
+            ),
+            CertificateStatus::Suspended => (
+                false,
+                CertificateStatus::Suspended,
+                cert.status_reason.clone(),
+            ),
+            CertificateStatus::Frozen => {
+                (false, CertificateStatus::Frozen, cert.status_reason.clone())
+            }
+            CertificateStatus::Expired => (
+                false,
+                CertificateStatus::Expired,
+                Some(String::from_str(env, "expired")),
+            ),
+        }
+    }
+
     /// Verify if a certificate is valid (active and not expired)
     pub fn is_valid(env: Env, id: String) -> bool {
         if let Some(cert) = env
@@ -354,15 +395,8 @@ impl CertificateContract {
             .persistent()
             .get::<_, Certificate>(&DataKey::Certificate(id))
         {
-            if cert.status != CertificateStatus::Active {
-                return false;
-            }
-            if let Some(expires) = cert.expires_at {
-                if env.ledger().timestamp() >= expires {
-                    return false;
-                }
-            }
-            true
+            let (valid, _, _) = Self::check_validity(&env, &cert);
+            valid
         } else {
             false
         }
@@ -412,7 +446,7 @@ impl CertificateContract {
         }
 
         // Get original certificate
-        let original_cert: Certificate = env
+        let mut original_cert: Certificate = env
             .storage()
             .persistent()
             .get(&DataKey::Certificate(old_id.clone()))
@@ -421,6 +455,11 @@ impl CertificateContract {
         // Verify issuer matches
         if original_cert.issuer != issuer {
             panic!("Issuer does not match original certificate");
+        }
+
+        // Reject non-reissuable parent states (must be Active)
+        if original_cert.status != CertificateStatus::Active {
+            panic!("Cannot reissue non-active certificate");
         }
 
         // Check new ID doesn't exist
@@ -432,18 +471,26 @@ impl CertificateContract {
             panic!("Certificate with new ID already exists");
         }
 
-        // Create new certificate with incremented version
+        // Create new certificate with incremented version using checked arithmetic
+        let new_minor = original_cert
+            .version
+            .minor
+            .checked_add(1)
+            .expect("Version minor overflow");
+
         let new_version = CertificateVersion {
             major: original_cert.version.major,
-            minor: original_cert.version.minor + 1,
+            minor: new_minor,
             patch: 0,
             build: None,
         };
 
+        let target_owner = new_owner.unwrap_or(original_cert.owner.clone());
+
         let new_cert = Certificate {
             id: new_id.clone(),
             issuer: issuer.clone(),
-            owner: new_owner.unwrap_or(original_cert.owner),
+            owner: target_owner.clone(),
             status: CertificateStatus::Active,
             metadata_uri: new_metadata_uri,
             issued_at: env.ledger().timestamp(),
@@ -454,8 +501,28 @@ impl CertificateContract {
             parent_certificate_id: Some(old_id.clone()),
         };
 
+        // Mark parent certificate as superseded/revoked in the same call
+        let superseded_reason = String::from_str(&env, "superseded");
+        original_cert.status = CertificateStatus::Revoked;
+        original_cert.revocation_reason = Some(superseded_reason.clone());
+        original_cert.status_reason = Some(superseded_reason.clone());
+        Self::set_persistent(&env, &DataKey::Certificate(old_id.clone()), &original_cert);
+
+        // Emit revocation event for the superseded parent
+        env.events().publish(
+            (symbol_short!("revoked"), old_id.clone()),
+            CertificateRevokedEvent {
+                id: old_id.clone(),
+                reason: superseded_reason,
+            },
+        );
+
         // Store new certificate
         Self::set_persistent(&env, &DataKey::Certificate(new_id.clone()), &new_cert);
+
+        // Append new cert id to issuer and owner indexes
+        Self::append_cert_id(&env, DataKey::IssuerCertIds(issuer.clone()), new_id.clone());
+        Self::append_cert_id(&env, DataKey::OwnerCertIds(target_owner), new_id.clone());
 
         // Emit a distinct reissued event so indexers can tell a reissue apart
         // from a fresh issuance and observe the parent (old) certificate link.
@@ -1248,7 +1315,10 @@ impl CertificateContract {
             })
     }
 
-    /// Batch verify multiple certificates
+    /// Batch verify multiple certificates.
+    ///
+    /// Shares validity evaluation with `is_valid`.
+    /// `total_cost` provides an estimated computational verification cost.
     pub fn batch_verify_certificates(env: Env, ids: Vec<String>) -> VerificationReport {
         const MAX_BATCH_SIZE: u32 = 100;
         if ids.len() > MAX_BATCH_SIZE {
@@ -1267,16 +1337,9 @@ impl CertificateContract {
                 .persistent()
                 .get::<_, Certificate>(&DataKey::Certificate(id.clone()))
             {
-                let is_expired_by_time = cert
-                    .expires_at
-                    .is_some_and(|exp| env.ledger().timestamp() >= exp);
+                let (valid, status, reason) = Self::check_validity(&env, &cert);
 
-                let is_revoked = cert.status == CertificateStatus::Revoked
-                    || cert.status == CertificateStatus::Suspended
-                    || cert.status == CertificateStatus::Expired
-                    || is_expired_by_time;
-
-                if !is_revoked {
+                if valid {
                     successful += 1;
                 } else {
                     failed += 1;
@@ -1285,18 +1348,23 @@ impl CertificateContract {
                 results.push_back(VerificationResult {
                     id: id.clone(),
                     exists: true,
-                    revoked: is_revoked,
+                    is_valid: valid,
+                    status: OptionalCertificateStatus::Some(status),
+                    reason,
                 });
             } else {
                 failed += 1;
                 results.push_back(VerificationResult {
                     id: id.clone(),
                     exists: false,
-                    revoked: false,
+                    is_valid: false,
+                    status: OptionalCertificateStatus::None,
+                    reason: Some(String::from_str(&env, "not_found")),
                 });
             }
         }
 
+        // Estimated verification cost: base verification fee + per-certificate estimate
         let total_cost = BASE_VERIFICATION_COST + (COST_PER_CERTIFICATE * ids.len() as u64);
 
         VerificationReport {

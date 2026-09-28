@@ -12,6 +12,13 @@ pub enum CertificateStatus {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OptionalCertificateStatus {
+    None,
+    Some(CertificateStatus),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CertificateVersion {
     pub major: u32,
     pub minor: u32,
@@ -241,15 +248,20 @@ pub struct PaginatedResult {
 pub struct VerificationResult {
     pub id: String,
     pub exists: bool,
-    pub revoked: bool,
+    pub is_valid: bool,
+    pub status: OptionalCertificateStatus,
+    pub reason: Option<String>,
 }
 
+/// Batch verification report.
+/// `total_cost` is an estimated cost for batch verification operations.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerificationReport {
     pub total: u32,
     pub successful: u32,
     pub failed: u32,
+    /// Estimated computational verification cost
     pub total_cost: u64,
     pub results: Vec<VerificationResult>,
 }

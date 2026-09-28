@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 #[test]
 fn test_issue_and_revoke_with_reason() {
@@ -445,6 +445,7 @@ fn test_batch_verify_with_mixed_statuses() {
     let active_id = String::from_str(&env, "cert-active");
     let revoked_id = String::from_str(&env, "cert-revoked");
     let suspended_id = String::from_str(&env, "cert-suspended");
+    let frozen_id = String::from_str(&env, "cert-frozen");
     let metadata_uri = String::from_str(&env, "ipfs://QmTest");
 
     env.mock_all_auths();
@@ -453,32 +454,160 @@ fn test_batch_verify_with_mixed_statuses() {
     client.issue_certificate(&active_id, &issuer, &owner, &metadata_uri, &None);
     client.issue_certificate(&revoked_id, &issuer, &owner, &metadata_uri, &None);
     client.issue_certificate(&suspended_id, &issuer, &owner, &metadata_uri, &None);
+    client.issue_certificate(&frozen_id, &issuer, &owner, &metadata_uri, &None);
 
     // Set different statuses
     client.revoke_certificate(&revoked_id, &String::from_str(&env, "revoked"));
     client.suspend_certificate(&suspended_id, &String::from_str(&env, "suspended"));
+    client.freeze_certificate(&frozen_id, &String::from_str(&env, "frozen"));
+
+    // Verify consistency: is_valid returns false for frozen cert
+    assert!(client.is_valid(&active_id));
+    assert!(!client.is_valid(&revoked_id));
+    assert!(!client.is_valid(&suspended_id));
+    assert!(!client.is_valid(&frozen_id));
 
     // Batch verify
     let mut ids = Vec::<String>::new(&env);
     ids.push_back(active_id.clone());
     ids.push_back(revoked_id.clone());
     ids.push_back(suspended_id.clone());
+    ids.push_back(frozen_id.clone());
 
     let result = client.batch_verify_certificates(&ids);
 
-    assert_eq!(result.total, 3);
+    assert_eq!(result.total, 4);
     assert_eq!(result.successful, 1); // Only active passes
-    assert_eq!(result.failed, 2); // Revoked and suspended fail
+    assert_eq!(result.failed, 3); // Revoked, suspended, and frozen fail
 
     // Check individual results
     let r0 = result.results.get(0).unwrap();
-    assert!(!r0.revoked);
+    assert!(r0.exists);
+    assert!(r0.is_valid);
+    assert_eq!(r0.status, OptionalCertificateStatus::Some(CertificateStatus::Active));
+    assert_eq!(r0.reason, None);
 
     let r1 = result.results.get(1).unwrap();
-    assert!(r1.revoked);
+    assert!(r1.exists);
+    assert!(!r1.is_valid);
+    assert_eq!(r1.status, OptionalCertificateStatus::Some(CertificateStatus::Revoked));
+    assert_eq!(r1.reason, Some(String::from_str(&env, "revoked")));
 
     let r2 = result.results.get(2).unwrap();
-    assert!(r2.revoked);
+    assert!(r2.exists);
+    assert!(!r2.is_valid);
+    assert_eq!(r2.status, OptionalCertificateStatus::Some(CertificateStatus::Suspended));
+    assert_eq!(r2.reason, Some(String::from_str(&env, "suspended")));
+
+    let r3 = result.results.get(3).unwrap();
+    assert!(r3.exists);
+    assert!(!r3.is_valid);
+    assert_eq!(r3.status, OptionalCertificateStatus::Some(CertificateStatus::Frozen));
+    assert_eq!(r3.reason, Some(String::from_str(&env, "frozen")));
+}
+
+#[test]
+fn test_reissue_certificate_supersedes_parent_and_indexes() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+
+    let old_id = String::from_str(&env, "cert-old");
+    let new_id = String::from_str(&env, "cert-new");
+    let meta_v1 = String::from_str(&env, "ipfs://QmMeta1");
+    let meta_v2 = String::from_str(&env, "ipfs://QmMeta2");
+
+    // Issue parent certificate
+    client.issue_certificate(&old_id, &issuer, &owner, &meta_v1, &None);
+    assert!(client.is_valid(&old_id));
+
+    // Reissue certificate
+    client.reissue_certificate(
+        &old_id,
+        &new_id,
+        &issuer,
+        &Some(owner.clone()),
+        &meta_v2,
+        &None,
+    );
+
+    // Parent must now be Revoked (superseded) and invalid
+    let parent = client.get_certificate(&old_id).unwrap();
+    assert_eq!(parent.status, CertificateStatus::Revoked);
+    assert_eq!(parent.revocation_reason, Some(String::from_str(&env, "superseded")));
+    assert!(!client.is_valid(&old_id));
+
+    // Child must be Active, valid, linked to parent, with incremented minor version
+    let child = client.get_certificate(&new_id).unwrap();
+    assert_eq!(child.status, CertificateStatus::Active);
+    assert_eq!(child.version.minor, 1);
+    assert_eq!(child.parent_certificate_id, Some(old_id.clone()));
+    assert!(client.is_valid(&new_id));
+
+    // New certificate must be indexed for both issuer and owner
+    let pagination = Pagination { page: 1, limit: 10 };
+    let issuer_certs = client.get_certificates_by_issuer(&issuer, &pagination);
+    assert_eq!(issuer_certs.total, 2);
+    let owner_certs = client.get_certificates_by_owner(&owner, &pagination);
+    assert_eq!(owner_certs.total, 2);
+}
+
+#[test]
+#[should_panic(expected = "Cannot reissue non-active certificate")]
+fn test_reissue_rejected_when_parent_revoked() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+
+    let old_id = String::from_str(&env, "cert-revoked-parent");
+    let new_id = String::from_str(&env, "cert-child");
+    let meta = String::from_str(&env, "ipfs://meta");
+
+    client.issue_certificate(&old_id, &issuer, &owner, &meta, &None);
+    client.revoke_certificate(&old_id, &String::from_str(&env, "revoked"));
+
+    client.reissue_certificate(&old_id, &new_id, &issuer, &Some(owner), &meta, &None);
+}
+
+#[test]
+#[should_panic(expected = "Cannot reissue non-active certificate")]
+fn test_reissue_rejected_when_parent_frozen() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+
+    let old_id = String::from_str(&env, "cert-frozen-parent");
+    let new_id = String::from_str(&env, "cert-child");
+    let meta = String::from_str(&env, "ipfs://meta");
+
+    client.issue_certificate(&old_id, &issuer, &owner, &meta, &None);
+    client.freeze_certificate(&old_id, &String::from_str(&env, "frozen"));
+
+    client.reissue_certificate(&old_id, &new_id, &issuer, &Some(owner), &meta, &None);
 }
 
 #[test]
