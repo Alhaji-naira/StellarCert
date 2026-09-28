@@ -932,6 +932,10 @@ impl CertificateContract {
         metadata: String,
         expiration_days: u32,
     ) -> PendingRequest {
+        // This guard must stay inside the function body and run before any
+        // other work: the fix for #569 was once committed at `impl`-block
+        // level, outside this function, which stopped the crate compiling
+        // (#612) and silently left proposals unauthenticated.
         issuer.require_auth();
         let config: MultisigConfig = env
             .storage()

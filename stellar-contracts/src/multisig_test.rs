@@ -556,3 +556,121 @@ fn test_set_certificate_contract_rejects_missing_admin_auth() {
     client.initialize(&admin);
     client.set_certificate_contract(&Address::generate(&env));
 }
+
+// ---------------------------------------------------------------------------
+// CertificateContract::propose_certificate (#612 / #569)
+//
+// `issuer.require_auth()` must stay inside the body of
+// `CertificateContract::propose_certificate`, before any other work. The #569
+// fix once landed at `impl`-block level - outside the function body - which
+// stopped the crate compiling (#612) and silently left proposals
+// unauthenticated. The tests below fail if that guard is removed, dropped or
+// moved back out of the function.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_certificate_contract_propose_certificate_records_pending_request() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let signers = vec![&env, Address::generate(&env), Address::generate(&env)];
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.init_multisig_config(&issuer, &2, &signers, &5, &admin);
+
+    let request_id = String::from_str(&env, "req-612");
+    let metadata = String::from_str(&env, "certificate metadata");
+
+    let request = client.propose_certificate(&request_id, &issuer, &recipient, &metadata, &7);
+
+    assert_eq!(request.id, request_id);
+    assert_eq!(request.issuer, issuer);
+    assert_eq!(request.recipient, recipient);
+    assert_eq!(request.proposer, issuer);
+    assert_eq!(request.metadata, metadata);
+    assert_eq!(request.status, RequestStatus::Pending);
+    assert_eq!(request.approvals.len(), 0);
+    assert_eq!(request.rejections.len(), 0);
+
+    // The issuer - and only the issuer - authorized the proposal.
+    let auths = env.auths();
+    assert_eq!(auths.len(), 1);
+    assert_eq!(auths[0].0, issuer);
+
+    // The proposal is persisted and reachable through the read path.
+    let stored = client.get_pending_request(&request_id, &issuer);
+    assert_eq!(stored.id, request_id);
+    assert_eq!(stored.status, RequestStatus::Pending);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_certificate_contract_propose_certificate_requires_issuer_auth() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    // Do NOT invoke mock_all_auths(): proposing on behalf of `issuer` must be
+    // rejected by the contract itself. The guard runs before the multisig
+    // config lookup, so the host reports an Auth error rather than
+    // "Issuer does not have multisig configuration" - which is exactly what
+    // happened when the guard was orphaned outside the function in #612.
+    let issuer = Address::generate(&env);
+    client.propose_certificate(
+        &String::from_str(&env, "req-612-unauthorized"),
+        &issuer,
+        &Address::generate(&env),
+        &String::from_str(&env, "certificate metadata"),
+        &7,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Issuer does not have multisig configuration")]
+fn test_certificate_contract_propose_certificate_rejects_unconfigured_issuer() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+
+    client.propose_certificate(
+        &String::from_str(&env, "req-612-unconfigured"),
+        &issuer,
+        &Address::generate(&env),
+        &String::from_str(&env, "certificate metadata"),
+        &7,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Request already exists")]
+fn test_certificate_contract_propose_certificate_rejects_duplicate_request_id() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let signers = vec![&env, Address::generate(&env), Address::generate(&env)];
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.init_multisig_config(&issuer, &2, &signers, &5, &admin);
+
+    let request_id = String::from_str(&env, "req-612-duplicate");
+    let metadata = String::from_str(&env, "certificate metadata");
+
+    client.propose_certificate(&request_id, &issuer, &recipient, &metadata, &7);
+    client.propose_certificate(&request_id, &issuer, &recipient, &metadata, &7);
+}
