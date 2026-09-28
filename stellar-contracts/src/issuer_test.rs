@@ -222,3 +222,77 @@ fn test_get_certificates_by_issuer_accepts_limit_at_max() {
     assert_eq!(result.data.len(), 0);
     assert!(!result.has_next);
 }
+
+#[test]
+fn test_freeze_certificate_allows_authorized_issuer() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-freeze-authorized");
+    let metadata_uri = String::from_str(&env, "ipfs://freeze-authorized");
+
+    client.initialize(&admin);
+    env.mock_all_auths();
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+
+    client.freeze_certificate(&id, &String::from_str(&env, "authorized freeze"));
+
+    let cert = client.get_certificate(&id).unwrap();
+    assert_eq!(cert.status, CertificateStatus::Frozen);
+}
+
+#[test]
+#[should_panic(expected = "Address is not an authorized issuer")]
+fn test_freeze_certificate_rejects_removed_issuer() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-freeze-removed-issuer");
+    let metadata_uri = String::from_str(&env, "ipfs://freeze-removed");
+
+    client.initialize(&admin);
+    env.mock_all_auths();
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+
+    // The certificate stays valid, but the issuer loses authorization.
+    client.remove_issuer(&issuer);
+
+    // A removed issuer must not be able to freeze certificates it issued.
+    client.freeze_certificate(&id, &String::from_str(&env, "stale issuer freeze"));
+}
+
+#[test]
+#[should_panic(expected = "Address is not an authorized issuer")]
+fn test_unfreeze_certificate_rejects_removed_issuer() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-unfreeze-removed-issuer");
+    let metadata_uri = String::from_str(&env, "ipfs://unfreeze-removed");
+
+    client.initialize(&admin);
+    env.mock_all_auths();
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+
+    // Freeze while the issuer is still authorized.
+    client.freeze_certificate(&id, &String::from_str(&env, "freeze while authorized"));
+
+    // Once authorization is revoked the stale issuer can no longer unfreeze.
+    client.remove_issuer(&issuer);
+    client.unfreeze_certificate(&id);
+}
