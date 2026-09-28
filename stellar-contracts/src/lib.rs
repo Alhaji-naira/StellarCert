@@ -424,8 +424,8 @@ impl CertificateContract {
             .expect("Certificate not found");
         cert.issuer.require_auth();
 
-        if cert.status != CertificateStatus::Active {
-            panic!("Can only update metadata for active certificates");
+        if cert.status != CertificateStatus::Active && cert.status != CertificateStatus::Frozen {
+            panic!("Can only update metadata for active or frozen certificates");
         }
 
         // Increment version
