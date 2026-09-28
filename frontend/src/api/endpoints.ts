@@ -1,6 +1,5 @@
 import {
   ActivityItem,
-  AdminAnalytics,
   ApiError,
   AuthResponse,
   AuditLogItem,
@@ -1353,6 +1352,24 @@ export const issuerProfileApi = {
 };
 
 // ==================== DASHBOARD & ANALYTICS ====================
+//
+// Dashboard statistics are served by `analyticsApi.getDashboardSummary` above,
+// which reads /certificates/stats. That is the endpoint to use and to change.
+//
+// A second `dashboardApi.getStats` used to live here, reading
+// /admin/analytics. It was removed rather than merged because it was wrong on
+// two counts, and neither was visible from the frontend alone:
+//
+//   1. /admin/analytics is @Roles(ADMIN) in AdminAnalyticsController, while
+//      /certificates/stats allows ADMIN, ISSUER and AUDITOR. Dashboard.tsx
+//      renders IssuerDashboard for any non-admin, non-recipient, non-verifier
+//      user, so an issuer using it would have been rejected with a 403.
+//   2. It never populated `statusDistribution`, so any consumer reading it
+//      would have silently seen undefined for that field.
+//
+// Its sibling `getRecentActivity` called /admin/analytics/activity, a route
+// that does not exist in the backend at all. Neither function had any caller
+// outside this file, so removing them changed no behaviour.
 
 export const dashboardApi = {
   getStats: async (): Promise<DashboardStats> => {
