@@ -25,6 +25,8 @@ const IssuerProfile = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState("");
   const [selectedProfileImage, setSelectedProfileImage] = useState<File | null>(
@@ -95,7 +97,9 @@ const IssuerProfile = () => {
       try {
         const profileStats = await issuerProfileApi.getStats();
         setStats(profileStats);
+        setStatsError(null);
       } catch (err) {
+        setStatsError("Failed to load issuer statistics");
         console.error("Failed to load issuer stats", err);
       }
 
@@ -119,6 +123,7 @@ const IssuerProfile = () => {
           ),
         );
       } catch (err) {
+        setActivityError("Failed to load recent activity");
         console.error("Failed to load issuer activity", err);
       }
     };
@@ -504,6 +509,14 @@ const IssuerProfile = () => {
               </h2>
             </div>
             <div className="p-6">
+              {statsError && (
+                <p
+                  role="alert"
+                  className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300"
+                >
+                  {statsError}
+                </p>
+              )}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600 dark:text-slate-400">
@@ -563,7 +576,13 @@ const IssuerProfile = () => {
           {activities.length === 0 ? (
             <div className="text-center py-8 text-gray-500 dark:text-slate-400">
               <Activity className="h-12 w-12 mx-auto text-gray-300 dark:text-slate-600 mb-4" />
-              <p>No recent activity found</p>
+              {activityError ? (
+                <p role="alert" className="text-red-600 dark:text-red-400">
+                  {activityError}
+                </p>
+              ) : (
+                <p>No recent activity found</p>
+              )}
             </div>
           ) : (
             <div className="space-y-4">

@@ -24,23 +24,30 @@ pub use multisig::MultisigCertificateContract;
 
 mod crl;
 // Explicit re-exports replace `pub use crl::*`
-pub use crl::{CRLContract, CRLInfo, RevocationInfo, RevocationReason};
+pub use crl::{
+    CRLContract, CRLInfo, CRLRevocationAddedEvent, RevocationInfo, RevocationReason,
+};
 
 pub mod persistent;
 
 mod admin_multisig;
 // Explicit re-exports replace `pub use admin_multisig::*`
 pub use admin_multisig::{
-    AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigDataKey, AdminProposal,
-    AdminProposalStatus, ProposalApprovedEvent, ProposalCanceledEvent, ProposalCreatedEvent,
+    AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigContractClient,
+    AdminMultisigDataKey, AdminProposal, AdminProposalStatus, ProposalApprovedEvent,
+    ProposalCanceledEvent, ProposalCreatedEvent,
 };
 
+#[cfg(test)]
+mod admin_multisig_test;
 #[cfg(test)]
 mod crl_test;
 #[cfg(test)]
 mod issuer_test;
 #[cfg(test)]
 mod multisig_test;
+#[cfg(test)]
+mod transfer_security_test;
 
 #[contract]
 pub struct CertificateContract;
@@ -57,11 +64,28 @@ impl CertificateContract {
     }
 
     /// Initialize the contract with an admin account
+    /// Initializes the contract admin.
+    ///
+    /// `require_auth` stops a third party initializing on someone else's
+    /// behalf. It does **not** close the deploy-to-init race on its own: an
+    /// attacker can still authorize their *own* address and claim admin
+    /// first. Closing that needs `__constructor`, which is a breaking change
+    /// to every contract registration — see the PR discussion.
     pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
         if env.storage().persistent().has(&DataKey::Admin) {
             panic!("Admin already initialized");
         }
         Self::set_persistent(&env, &DataKey::Admin, &admin);
+    }
+
+    /// Returns the stored admin, if the contract has been initialized.
+    ///
+    /// Added so a deployment can verify the admin it intended is the admin
+    /// that was actually stored — the check `deploy-contracts.sh` performs
+    /// to detect a lost initialize race (#1022).
+    pub fn get_admin(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::Admin)
     }
 
     pub fn add_issuer(env: Env, issuer: Address) {
@@ -309,6 +333,18 @@ impl CertificateContract {
             .expect("Certificate not found");
         cert.issuer.require_auth();
 
+        // The stored issuer must still be an authorized issuer: an issuer who
+        // has been removed via `remove_issuer()` must not be able to freeze
+        // certificates they previously issued.
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Issuer(cert.issuer.clone()))
+            .unwrap_or(false)
+        {
+            panic!("Address is not an authorized issuer");
+        }
+
         if cert.status == CertificateStatus::Frozen {
             panic!("Certificate is already frozen");
         }
@@ -332,6 +368,17 @@ impl CertificateContract {
             .get(&DataKey::Certificate(id.clone()))
             .expect("Certificate not found");
         cert.issuer.require_auth();
+
+        // Mirror the freeze guard: a removed issuer must not be able to
+        // unfreeze (or otherwise mutate) certificates they previously issued.
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Issuer(cert.issuer.clone()))
+            .unwrap_or(false)
+        {
+            panic!("Address is not an authorized issuer");
+        }
 
         if cert.status != CertificateStatus::Frozen {
             panic!("Certificate is not frozen");
@@ -377,8 +424,8 @@ impl CertificateContract {
             .expect("Certificate not found");
         cert.issuer.require_auth();
 
-        if cert.status != CertificateStatus::Active {
-            panic!("Can only update metadata for active certificates");
+        if cert.status != CertificateStatus::Active && cert.status != CertificateStatus::Frozen {
+            panic!("Can only update metadata for active or frozen certificates");
         }
 
         // Increment version
@@ -512,6 +559,16 @@ impl CertificateContract {
             panic!("Transfer with this ID already exists");
         }
 
+        // Only one open transfer per certificate.
+        //
+        // Allowing several meant a certificate could be moved twice: A opens
+        // transfers to B and to C, B's completes, then C's — still holding a
+        // stale `from_owner` of A — completes as well and takes the
+        // certificate from B without B's consent.
+        if Self::has_open_transfer(&env, certificate_id.clone()) {
+            panic!("Certificate already has an open transfer");
+        }
+
         // Create transfer record
         let transfer = CertificateTransfer {
             id: transfer_id.clone(),
@@ -620,6 +677,21 @@ impl CertificateContract {
             .get(&DataKey::Certificate(transfer.certificate_id.clone()))
             .expect("Certificate not found");
 
+        // Re-check live certificate state, not just the transfer record.
+        //
+        // `transfer.from_owner` is a snapshot taken when the transfer was
+        // opened; it says nothing about who owns the certificate *now*.
+        // Without this the holder of a stale accepted transfer could move a
+        // certificate that had since changed hands.
+        if cert.owner != transfer.from_owner {
+            panic!("Certificate owner has changed since this transfer was initiated");
+        }
+
+        // A revoked, expired, suspended or frozen certificate must not move.
+        if cert.status != CertificateStatus::Active {
+            panic!("Can only transfer active certificates");
+        }
+
         let previous_owner = cert.owner.clone();
         let new_owner = transfer.to_owner.clone();
 
@@ -667,6 +739,13 @@ impl CertificateContract {
         transfer.completed_at = Some(env.ledger().timestamp());
 
         Self::set_persistent(&env, &DataKey::Transfer(transfer_id.clone()), &transfer);
+
+        // Close any sibling transfers so none can be completed afterwards.
+        Self::cancel_other_open_transfers(
+            &env,
+            transfer.certificate_id.clone(),
+            transfer_id.clone(),
+        );
 
         // Emit a completion event for off-chain systems
         env.events().publish(
@@ -751,6 +830,54 @@ impl CertificateContract {
     }
 
     /// Get transfer history for a certificate
+    /// True when the certificate already has a Pending or Accepted transfer.
+    ///
+    /// Completed, Rejected and Cancelled transfers are closed and do not
+    /// block a new one.
+    fn has_open_transfer(env: &Env, certificate_id: String) -> bool {
+        let history = Self::get_transfer_history(env, certificate_id);
+        for transfer_id in history.iter() {
+            if let Some(existing) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, CertificateTransfer>(&DataKey::Transfer(transfer_id.clone()))
+            {
+                if existing.status == TransferStatus::Pending
+                    || existing.status == TransferStatus::Accepted
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Cancels every other open transfer for a certificate.
+    ///
+    /// Belt and braces alongside the `initiate_transfer` guard: records
+    /// created before that guard existed can still be sitting in storage, and
+    /// leaving them Accepted would keep the double-move path open.
+    fn cancel_other_open_transfers(env: &Env, certificate_id: String, keep: String) {
+        let history = Self::get_transfer_history(env, certificate_id);
+        for transfer_id in history.iter() {
+            if transfer_id == keep {
+                continue;
+            }
+            if let Some(mut other) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, CertificateTransfer>(&DataKey::Transfer(transfer_id.clone()))
+            {
+                if other.status == TransferStatus::Pending
+                    || other.status == TransferStatus::Accepted
+                {
+                    other.status = TransferStatus::Cancelled;
+                    Self::set_persistent(env, &DataKey::Transfer(transfer_id.clone()), &other);
+                }
+            }
+        }
+    }
+
     fn get_transfer_history(env: &Env, certificate_id: String) -> Vec<String> {
         env.storage()
             .persistent()
@@ -932,6 +1059,10 @@ impl CertificateContract {
         metadata: String,
         expiration_days: u32,
     ) -> PendingRequest {
+        // This guard must stay inside the function body and run before any
+        // other work: the fix for #569 was once committed at `impl`-block
+        // level, outside this function, which stopped the crate compiling
+        // (#612) and silently left proposals unauthenticated.
         issuer.require_auth();
         let config: MultisigConfig = env
             .storage()
