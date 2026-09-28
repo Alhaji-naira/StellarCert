@@ -1018,12 +1018,14 @@ export const authApi = {
     return apiClient("/users/forgot-password", {
       method: "POST",
       body: JSON.stringify(data),
+      skipAuth: true,
     });
   },
   resetPassword: async (data: ResetPasswordRequest): Promise<{ message: string }> => {
     return apiClient("/users/reset-password", {
       method: "POST",
       body: JSON.stringify(data),
+      skipAuth: true,
     });
   },
   verifyEmail: async (
