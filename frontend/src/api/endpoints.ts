@@ -29,6 +29,7 @@ import {
   ForgotPasswordRequest,
   ResetPasswordRequest,
   VerifyEmailRequest,
+  getErrorMessage,
 } from "./types";
 import { tokenStorage, notifyTokenRefreshed } from "./tokens";
 
@@ -53,19 +54,16 @@ const simulateDelay = () => new Promise((resolve) => setTimeout(resolve, 300));
 // Common error handler
 const handleError = (error: unknown, endpointName: string): never => {
   console.error(`Error in ${endpointName}:`, error);
-  const apiError: ApiError = {
-    message:
-      error instanceof Error ? error.message : "An unexpected error occurred",
-    statusCode:
-      error && typeof error === "object" && "statusCode" in error
-        ? (error as { statusCode: number }).statusCode
-        : 500,
-    error:
-      error && typeof error === "object" && "name" in error
-        ? (error as { name: string }).name
-        : "API Error",
-  };
-  throw apiError;
+  const message = error instanceof Error ? error.message : "An unexpected error occurred";
+  const statusCode =
+    error && typeof error === "object" && "statusCode" in error
+      ? (error as { statusCode: number }).statusCode
+      : 500;
+  const errorName =
+    error && typeof error === "object" && "name" in error
+      ? (error as { name: string }).name
+      : "API Error";
+  throw new ApiError(message, statusCode, errorName);
 };
 
 /**
@@ -166,7 +164,7 @@ export async function apiClient<T>(
       });
 
       if (!response.ok) {
-        const errorData: ApiError = await response.json().catch(() => ({
+        const errorData = await response.json().catch(() => ({
           message: response.statusText || "API request failed",
           statusCode: response.status,
         }));
@@ -186,14 +184,14 @@ export async function apiClient<T>(
             return attemptRequest(attempt, true);
           } catch (refreshError) {
             tokenStorage.clearTokens();
-            throw errorData;
+            throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
           }
         } else if (response.status === 401) {
           tokenStorage.clearTokens();
-          throw errorData;
+          throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
         }
 
-        throw errorData;
+        throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
       }
 
       if (response.status === 204) {
@@ -209,17 +207,12 @@ export async function apiClient<T>(
     } catch (error) {
       // Don't retry if this is the last attempt or retry condition is not met
       if (attempt >= config.maxRetries || !config.retryCondition?.(error)) {
-        if ((error as ApiError).statusCode) {
+        if (error instanceof ApiError) {
           throw error;
         }
 
-        const apiError: ApiError = {
-          message:
-            error instanceof Error ? error.message : "An unexpected error occurred",
-          statusCode: 0,
-          error: "Network Error",
-        };
-        throw apiError;
+        const message = error instanceof Error ? error.message : "An unexpected error occurred";
+        throw new ApiError(message, 0, "Network Error");
       }
 
       // Calculate delay with exponential backoff

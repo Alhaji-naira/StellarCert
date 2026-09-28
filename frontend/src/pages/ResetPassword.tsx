@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { authApi } from "../api";
+import { getErrorMessage } from "../api/types";
 
 const ResetPassword = () => {
   const [searchParams] = useSearchParams();
@@ -36,7 +37,7 @@ const ResetPassword = () => {
       });
       navigate("/login?message=" + encodeURIComponent("Password reset successful. Please sign in with your new password."));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to reset password");
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
