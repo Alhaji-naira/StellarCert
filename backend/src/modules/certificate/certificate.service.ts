@@ -25,6 +25,7 @@ import { MetadataSchemaService } from '../metadata-schema/services/metadata-sche
 import { UserRole } from '../users/entities/user.entity';
 import { SorobanService } from '../stellar/services/soroban.service';
 import { MAX_EXPORT_LIMIT, MAX_PAGE_LIMIT } from './dto/export-filters.dto';
+import { CryptoUtils } from '../../common/utils/crypto.utils';
 
 @Injectable()
 export class CertificateService {
@@ -109,13 +110,15 @@ export class CertificateService {
     await queryRunner.startTransaction();
 
     try {
+      const certificateId = await this.generateCertificateId();
+      const verificationCode =
+        dto.verificationCode || (await this.generateVerificationCode());
       const certificate = queryRunner.manager.create(Certificate, {
         ...dto,
         recipientId,
-        certificateId: this.generateCertificateId(),
+        certificateId,
         expiresAt: dto.expiresAt || this.calculateDefaultExpiry(),
-        verificationCode:
-          dto.verificationCode || this.generateVerificationCode(),
+        verificationCode,
         isDuplicate: false,
       });
       // TypeORM quirk: dual @Column()/@ManyToOne() on same column name — set issuerId directly
@@ -924,22 +927,35 @@ export class CertificateService {
     return expiry;
   }
 
-  private generateVerificationCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+  private async generateVerificationCode(): Promise<string> {
+    const maxRetries = 10;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const code = CryptoUtils.generateAlphanumericCode(8);
+      const exists = await this.certificateRepository.findOne({
+        where: { verificationCode: code },
+        select: ['id'],
+      });
+      if (!exists) return code;
     }
-    return code;
+    throw new ConflictException(
+      'Failed to generate a unique verification code after multiple attempts',
+    );
   }
 
-  private generateCertificateId(): string {
+  private async generateCertificateId(): Promise<string> {
     const year = new Date().getFullYear();
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let suffix = '';
-    for (let i = 0; i < 8; i++) {
-      suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+    const maxRetries = 10;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const suffix = CryptoUtils.generateAlphanumericCode(8);
+      const certificateId = `CERT-${year}-${suffix}`;
+      const exists = await this.certificateRepository.findOne({
+        where: { certificateId },
+        select: ['id'],
+      });
+      if (!exists) return certificateId;
     }
-    return `CERT-${year}-${suffix}`;
+    throw new ConflictException(
+      'Failed to generate a unique certificate ID after multiple attempts',
+    );
   }
 }
