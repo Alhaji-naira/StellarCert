@@ -1,5 +1,6 @@
 import {
   ActivityItem,
+  AdminAnalytics,
   ApiError,
   AuthResponse,
   AuditLogItem,
@@ -66,11 +67,6 @@ const handleError = (error: unknown, endpointName: string): never => {
   throw new ApiError(message, statusCode, errorName);
 };
 
-/**
- * Sleep utility for retry delays
- */
-const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
-
 // Base path constants for authentication
 export const AUTH_ENDPOINTS = {
   LOGIN: "/users/login",
@@ -86,6 +82,10 @@ export const AUTH_ENDPOINTS = {
  * endpoint is IP-rate-limited, so the app must never issue a page-load burst of
  * refresh requests. AuthContext now performs one explicit bootstrap refresh
  * before rendering routes, removing the old need for a cooldown workaround.
+ *
+ * This stays in the fetch layer (rather than the query layer) because it has to
+ * rewrite the Authorization header of already-issued requests, not just queue
+ * another one.
  */
 let _refreshInFlight: Promise<AuthResponse> | null = null;
 
@@ -103,39 +103,23 @@ const refreshTokens = async (): Promise<AuthResponse> => {
 };
 
 /**
- * Retry configuration
- */
-interface RetryConfig {
-  maxRetries: number;
-  baseDelay: number;
-  maxDelay: number;
-  backoffFactor: number;
-  retryCondition?: (error: unknown) => boolean;
-}
-
-const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxRetries: 2,
-  baseDelay: 300,
-  maxDelay: 2000,
-  backoffFactor: 2,
-  retryCondition: (error) => {
-    // Retry on network errors and 5xx server errors
-    const status = (error as { statusCode?: number } | undefined)?.statusCode;
-    return !status || (status >= 500 && status < 600);
-  }
-};
-
-/**
- * Standardized API client for all requests with retry logic
+ * Standardized API client: a plain fetcher over the REST endpoints.
+ *
+ * Deliberately no retry/backoff here. Retries are a caching concern and live in
+ * the query layer (`src/lib/queryClient.ts`), which can only retry queries it
+ * owns -- doing it in both places produced duplicate requests and multiplied
+ * delays. Mutating calls are also never retried here, so a double-submitted
+ * revoke can't be manufactured by a network hiccup.
+ *
+ * The one exception is the 401 access-token refresh, which stays in this layer
+ * because it has to rewrite the Authorization header of the in-flight request
+ * and coalesce across every caller.
  */
 export async function apiClient<T>(
   endpoint: string,
   options: RequestInit & { skipAuth?: boolean } = {},
-  retryConfig: Partial<RetryConfig> = {},
 ): Promise<T> {
-  const config = { ...DEFAULT_RETRY_CONFIG, ...retryConfig };
   const url = `${API_URL}${endpoint}`;
-  const isGetRequest = !options.method || options.method.toUpperCase() === 'GET';
 
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
@@ -147,86 +131,71 @@ export async function apiClient<T>(
     }
   }
 
-  const attemptRequest = async (attempt: number, hasTriedRefresh: boolean = false): Promise<T> => {
+  const attemptRequest = async (hasTriedRefresh: boolean = false): Promise<T> => {
+    let response: Response;
     try {
-      const response = await fetch(url, {
+      response = await fetch(url, {
         ...options,
         headers,
         credentials: 'include',
       });
+    } catch (error) {
+      // A rejected fetch is a network-level failure, not an HTTP status, so
+      // normalise it into the same shape callers already handle. Built with the
+      // constructor rather than an object literal so `instanceof ApiError` holds
+      // for `getErrorMessage` and friends.
+      throw new ApiError(
+        error instanceof Error ? error.message : "An unexpected error occurred",
+        0,
+        "Network Error",
+      );
+    }
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({
-          message: response.statusText || "API request failed",
-          statusCode: response.status,
-        }));
+    if (!response.ok) {
+      const errorData: ApiError = await response.json().catch(() => ({
+        message: response.statusText || "API request failed",
+        statusCode: response.status,
+      }));
 
-        // Never attempt a refresh for the refresh call itself (skipAuth) — that
-        // would recurse into refreshTokens and, with the shared in-flight
-        // promise, deadlock the request against itself.
-        if (response.status === 401 && !hasTriedRefresh && !options.skipAuth) {
-          try {
-            const refreshResponse = await refreshTokens();
-            tokenStorage.setAccessToken(refreshResponse.accessToken);
-            headers.set("Authorization", `Bearer ${refreshResponse.accessToken}`);
-            // Forward the fresh user too so AuthContext updates both the user
-            // object and isAuthenticated, not just the stored token (#560).
-            notifyTokenRefreshed(refreshResponse.accessToken, refreshResponse.user);
-            // Retry the original request with hasTriedRefresh = true
-            return attemptRequest(attempt, true);
-          } catch (refreshError) {
-            tokenStorage.clearTokens();
-            throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
-          }
-        } else if (response.status === 401) {
+      // Never attempt a refresh for the refresh call itself (skipAuth) — that
+      // would recurse into refreshTokens and, with the shared in-flight
+      // promise, deadlock the request against itself.
+      if (response.status === 401 && !hasTriedRefresh && !options.skipAuth) {
+        try {
+          const refreshResponse = await refreshTokens();
+          tokenStorage.setAccessToken(refreshResponse.accessToken);
+          headers.set("Authorization", `Bearer ${refreshResponse.accessToken}`);
+          // Forward the fresh user too so AuthContext updates both the user
+          // object and isAuthenticated, not just the stored token (#560).
+          notifyTokenRefreshed(refreshResponse.accessToken, refreshResponse.user);
+          // Replay the original request with the refreshed credential.
+          return attemptRequest(true);
+        } catch {
           tokenStorage.clearTokens();
           throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
         }
-
-        throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
       }
 
-      if (response.status === 204) {
-        return {} as T;
+      if (response.status === 401) {
+        tokenStorage.clearTokens();
       }
 
-      const json = await response.json();
-      // Unwrap the global ResponseInterceptor envelope { statusCode, message, data }
-      if (json && typeof json === 'object' && 'data' in json && 'statusCode' in json) {
-        return json.data as T;
-      }
-      return json as T;
-    } catch (error) {
-      // Don't retry if this is the last attempt or retry condition is not met
-      if (attempt >= config.maxRetries || !config.retryCondition?.(error)) {
-        if (error instanceof ApiError) {
-          throw error;
-        }
-
-        const message = error instanceof Error ? error.message : "An unexpected error occurred";
-        throw new ApiError(message, 0, "Network Error");
-      }
-
-      // Calculate delay with exponential backoff
-      const delay = Math.min(
-        config.baseDelay * Math.pow(config.backoffFactor, attempt - 1),
-        config.maxDelay
-      );
-
-      console.warn(`API request failed (attempt ${attempt}/${config.maxRetries + 1}), retrying in ${delay}ms:`, error);
-
-      await sleep(delay);
-      return attemptRequest(attempt + 1, hasTriedRefresh);
+      throw errorData;
     }
+
+    if (response.status === 204) {
+      return {} as T;
+    }
+
+    const json = await response.json();
+    // Unwrap the global ResponseInterceptor envelope { statusCode, message, data }
+    if (json && typeof json === 'object' && 'data' in json && 'statusCode' in json) {
+      return json.data as T;
+    }
+    return json as T;
   };
 
-  // Only apply retry logic to GET requests by default
-  if (isGetRequest) {
-    return attemptRequest(1, false);
-  } else {
-    // For non-GET requests, make a single attempt
-    return attemptRequest(config.maxRetries + 1, false);
-  }
+  return attemptRequest(false);
 }
 
 /**
