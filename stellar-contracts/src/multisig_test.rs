@@ -9,7 +9,7 @@ use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
 #[test]
 fn test_init_multisig_config() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -31,7 +31,7 @@ fn test_init_multisig_config() {
 #[test]
 fn test_propose_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -61,7 +61,7 @@ fn test_propose_certificate() {
 #[test]
 fn test_approve_request_success() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -105,7 +105,7 @@ fn test_approve_request_success() {
 #[test]
 fn test_reject_request() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -163,7 +163,7 @@ fn test_reject_request() {
 #[test]
 fn test_reject_request_impossible_approval() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -202,7 +202,7 @@ fn test_reject_request_impossible_approval() {
 #[test]
 fn test_issue_approved_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -227,7 +227,7 @@ fn test_issue_approved_certificate() {
     client.approve_request(&request_id, &signer2);
 
     // Configure the external certificate contract and register the issuer
-    let certificate_contract_id = env.register_contract(None, CertificateContract);
+    let certificate_contract_id = env.register(CertificateContract, ());
     let certificate_contract_address = certificate_contract_id.clone();
     let certificate_client = CertificateContractClient::new(&env, &certificate_contract_id);
     certificate_client.initialize(&admin);
@@ -249,7 +249,7 @@ fn test_issue_approved_certificate() {
 #[test]
 fn test_cancel_request() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -281,7 +281,7 @@ fn test_cancel_request() {
 #[test]
 fn test_update_multisig_config() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -307,7 +307,7 @@ fn test_update_multisig_config() {
 #[test]
 fn test_invalid_approve_by_non_signer() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -338,7 +338,7 @@ fn test_invalid_approve_by_non_signer() {
 #[test]
 fn test_double_approval() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -373,7 +373,7 @@ fn test_double_approval() {
 #[test]
 fn test_expired_request() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -402,7 +402,7 @@ fn test_expired_request() {
 #[test]
 fn test_get_pending_requests_for_issuer_returns_paginated_results() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -445,7 +445,7 @@ fn test_get_pending_requests_for_issuer_returns_paginated_results() {
 #[test]
 fn test_get_pending_requests_for_signer_returns_only_pending_requests() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -487,7 +487,7 @@ fn test_get_pending_requests_for_signer_returns_only_pending_requests() {
 #[test]
 fn test_initialize_stores_admin() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -500,7 +500,7 @@ fn test_initialize_stores_admin() {
 #[should_panic(expected = "Admin already initialized")]
 fn test_initialize_rejects_second_call() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -511,7 +511,7 @@ fn test_initialize_rejects_second_call() {
 #[test]
 fn test_set_certificate_contract_success() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -537,7 +537,7 @@ fn test_set_certificate_contract_success() {
 #[should_panic(expected = "Contract not initialized")]
 fn test_set_certificate_contract_rejects_uninitialized() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     client.set_certificate_contract(&Address::generate(&env));
@@ -547,7 +547,7 @@ fn test_set_certificate_contract_rejects_uninitialized() {
 #[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
 fn test_set_certificate_contract_rejects_missing_admin_auth() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     // Do NOT invoke mock_all_auths() — a random caller must not be able to

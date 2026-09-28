@@ -9,7 +9,7 @@ use soroban_sdk::{
 #[test]
 fn test_issuer_management() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -53,7 +53,7 @@ fn test_issuer_management() {
 #[test]
 fn test_issued_certificate_ttl_is_extended() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -82,7 +82,7 @@ fn test_issued_certificate_ttl_is_extended() {
 #[test]
 fn test_remove_issuer_updates_vec_and_count() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -113,7 +113,7 @@ fn test_remove_issuer_idempotent_on_missing_issuer() {
     // Removing an address that was never added must not panic, and must not
     // corrupt the count or list.
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -137,7 +137,7 @@ fn test_remove_issuer_idempotent_on_missing_issuer() {
 #[test]
 fn test_remove_all_issuers_reaches_zero() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -168,7 +168,7 @@ fn test_remove_all_issuers_reaches_zero() {
 #[should_panic(expected = "Pagination limit exceeds maximum allowed")]
 fn test_get_certificates_by_issuer_rejects_oversized_limit() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -188,7 +188,7 @@ fn test_get_certificates_by_issuer_rejects_oversized_limit() {
 #[should_panic(expected = "Pagination limit exceeds maximum allowed")]
 fn test_get_certificates_by_owner_rejects_oversized_limit() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let owner = Address::generate(&env);
@@ -205,7 +205,7 @@ fn test_get_certificates_by_owner_rejects_oversized_limit() {
 #[test]
 fn test_get_certificates_by_issuer_accepts_limit_at_max() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
