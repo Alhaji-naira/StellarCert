@@ -43,6 +43,19 @@ const useDebounce = (value: string, delay: number) => {
     return debouncedValue;
 };
 
+// One place for the message a user must see when an action fails. Rendered
+// inside the dialog that started the action when there is one, and above the
+// table otherwise, so a failure is never only a console entry.
+const ActionError = ({ message, className = '' }: { message: string | null; className?: string }) =>
+    message ? (
+        <p
+            role="alert"
+            className={`text-sm text-red-700 dark:text-red-200 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md px-3 py-2 ${className}`}
+        >
+            {message}
+        </p>
+    ) : null;
+
 const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     // State for data and pagination
     const [certificates, setCertificates] = useState<Certificate[]>([]);
@@ -97,6 +110,14 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     const [certHistory, setCertHistory] = useState<ActivityItem[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
 
+    // Failure/feedback state. `loadError` is separate from the certificate list
+    // so a failed load can render as a failure with a retry rather than as an
+    // empty result set. `pendingAction` drives the in-flight (disabled) state of
+    // the buttons that fire a mutation, so a double click cannot double-submit.
+    const [actionError, setActionError] = useState<string | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [pendingAction, setPendingAction] = useState<string | null>(null);
+
     // Certificate detail modal state. Holds the row's certificate rather than
     // just its id: the table already has every field the detail view shows, so
     // opening it needs no second request.
@@ -105,6 +126,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     // Fetch certificates
     const fetchCertificates = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const params = {
                 page,
@@ -126,6 +148,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             setFilteredCount(response.total);
         } catch (err) {
             console.error('Failed to fetch certificates:', err);
+            setLoadError('Failed to fetch certificates');
             onError?.('Failed to fetch certificates');
         } finally {
             setLoading(false);
@@ -169,6 +192,8 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
 
     // Handle bulk export
     const handleBulkExport = async () => {
+        setActionError(null);
+        setPendingAction('export');
         try {
             const filters: CertificateExportFilters = {
                 search: search || undefined,
@@ -191,13 +216,18 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             onSuccess?.('Certificates exported successfully');
         } catch (err) {
             console.error('Export failed:', err);
+            setActionError('Failed to export certificates');
             onError?.('Failed to export certificates');
+        } finally {
+            setPendingAction(null);
         }
     };
 
     // Handle bulk export of all filtered results
     const handleBulkExportAll = async () => {
         setExportingFiltered(true);
+        setActionError(null);
+        setPendingAction('export-all');
         try {
             const filters: CertificateExportFilters = {
                 search: search || undefined,
@@ -217,9 +247,11 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             onSuccess?.(`Successfully exported ${filteredCount} certificates`);
         } catch (err) {
             console.error('Export failed:', err);
+            setActionError('Failed to export certificates');
             onError?.('Failed to export certificates');
         } finally {
             setExportingFiltered(false);
+            setPendingAction(null);
         }
     };
 
@@ -230,6 +262,8 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     };
 
     const confirmRevoke = async () => {
+        setActionError(null);
+        setPendingAction('revoke');
         try {
             await certificateApi.bulkRevoke(revokingCertIds, revokeReason);
             onSuccess?.('Certificates revoked successfully');
@@ -240,7 +274,10 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             fetchCertificates();
         } catch (err) {
             console.error('Revoke failed:', err);
+            setActionError('Failed to revoke certificates');
             onError?.('Failed to revoke certificates');
+        } finally {
+            setPendingAction(null);
         }
     };
 
@@ -252,6 +289,8 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
 
     const confirmFreeze = async () => {
         if (!freezingCertId) return;
+        setActionError(null);
+        setPendingAction('freeze');
         try {
             const durationDays = Math.max(1, Number.isFinite(freezeDuration) ? Math.trunc(freezeDuration) : 1);
             await certificateApi.freeze(freezingCertId, freezeReason, durationDays);
@@ -263,19 +302,27 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             fetchCertificates();
         } catch (err) {
             console.error('Freeze failed:', err);
+            setActionError('Failed to freeze certificate');
             onError?.('Failed to freeze certificate');
+        } finally {
+            setPendingAction(null);
         }
     };
 
     // Handle unfreeze
     const handleUnfreeze = async (certId: string) => {
+        setActionError(null);
+        setPendingAction(`unfreeze:${certId}`);
         try {
             await certificateApi.unfreeze(certId);
             onSuccess?.('Certificate unfrozen successfully');
             fetchCertificates();
         } catch (err) {
             console.error('Unfreeze failed:', err);
+            setActionError('Failed to unfreeze certificate');
             onError?.('Failed to unfreeze certificate');
+        } finally {
+            setPendingAction(null);
         }
     };
 
@@ -291,6 +338,8 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     };
 
     const confirmTransfer = async () => {
+        setActionError(null);
+        setPendingAction('transfer');
         try {
             await certificateApi.transfer.initiate(transferData);
             onSuccess?.('Transfer initiated successfully. New owner must approve.');
@@ -298,7 +347,10 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             fetchCertificates();
         } catch (err) {
             console.error('Transfer failed:', err);
+            setActionError('Failed to initiate transfer');
             onError?.('Failed to initiate transfer');
+        } finally {
+            setPendingAction(null);
         }
     };
 
@@ -307,11 +359,13 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         setSelectedCertId(certId);
         setShowHistoryModal(true);
         setLoadingHistory(true);
+        setActionError(null);
         try {
             const history = await auditApi.getCertificateHistory(certId);
             setCertHistory(history);
         } catch (err) {
             console.error('Failed to fetch history:', err);
+            setActionError('Failed to load certificate history');
             onError?.('Failed to load certificate history');
         } finally {
             setLoadingHistory(false);
@@ -350,11 +404,15 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
 
     const hasActiveFilters = search || statusFilter || startDate || endDate;
 
+    // True while one of the dialogs that can display `actionError` is open, so
+    // the message is rendered next to the action that failed, not twice.
+    const anyModalOpen = showFreezeModal || showRevokeModal || showTransferModal || showHistoryModal;
+
     // Export selected button
     const ExportButton = () => (
         <button
             onClick={handleBulkExport}
-            disabled={selectedIds.size === 0}
+            disabled={selectedIds.size === 0 || pendingAction !== null}
             className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800 dark:text-gray-200 dark:border-slate-600 dark:hover:bg-slate-700"
         >
             <Download className="w-4 h-4 mr-2" />
@@ -366,7 +424,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     const ExportAllButton = () => (
         <button
             onClick={handleBulkExportAll}
-            disabled={exportingFiltered || filteredCount === 0}
+            disabled={exportingFiltered || filteredCount === 0 || pendingAction !== null}
             className="inline-flex items-center px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 rounded-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-600 dark:hover:bg-blue-900/30"
         >
             <Download className="w-4 h-4 mr-2" />
@@ -378,7 +436,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     const RevokeButton = () => (
         <button
             onClick={handleBulkRevoke}
-            disabled={selectedIds.size === 0}
+            disabled={selectedIds.size === 0 || pendingAction !== null}
             className="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
             <XCircle className="w-4 h-4 mr-2" />
@@ -453,6 +511,10 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                     <RevokeButton />
                 </div>
             </div>
+
+            {/* Table-level action feedback. Actions started from a dialog render
+                their error inside that dialog instead. */}
+            {!anyModalOpen && <ActionError message={actionError} />}
 
             {/* Table */}
             <div className="bg-white dark:bg-slate-900 rounded-lg shadow-md dark:shadow-lg dark:border dark:border-slate-700 overflow-hidden">
@@ -537,6 +599,24 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                         </div>
                                     </td>
                                 </tr>
+                            ) : loadError ? (
+                                <tr>
+                                    <td colSpan={8} className="px-6 py-12 text-center">
+                                        <div role="alert" className="text-red-700 dark:text-red-300">
+                                            {loadError}
+                                        </div>
+                                        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                                            The certificate list could not be loaded. This is not an empty result.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => fetchCertificates()}
+                                            className="mt-4 inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                                        >
+                                            Retry
+                                        </button>
+                                    </td>
+                                </tr>
                             ) : certificates.length === 0 ? (
                                 <tr>
                                     <td colSpan={8} className="px-6 py-12 text-center text-gray-500 dark:text-slate-400">
@@ -578,7 +658,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                                     onClick={() => handleFreeze(cert.id)}
                                                     className="p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                                     title="Freeze Certificate"
-                                                    disabled={cert.status === 'frozen' || cert.status === 'revoked'}
+                                                    disabled={cert.status === 'frozen' || cert.status === 'revoked' || pendingAction !== null}
                                                 >
                                                     <Snowflake className="w-5 h-5" />
                                                 </button>
@@ -587,6 +667,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                                         onClick={() => handleUnfreeze(cert.id)}
                                                         className="p-1 text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
                                                         title="Unfreeze Certificate"
+                                                        disabled={pendingAction !== null}
                                                     >
                                                         <Check className="w-5 h-5" />
                                                     </button>
@@ -595,7 +676,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                                     onClick={() => { setRevokingCertIds([cert.id]); setShowRevokeModal(true); }}
                                                     className="p-1 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                                                     title="Revoke Certificate"
-                                                    disabled={cert.status === 'revoked'}
+                                                    disabled={cert.status === 'revoked' || pendingAction !== null}
                                                 >
                                                     <XCircle className="w-5 h-5" />
                                                 </button>
@@ -603,7 +684,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                                     onClick={() => handleTransfer(cert)}
                                                     className="p-1 text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300"
                                                     title="Transfer Certificate"
-                                                    disabled={cert.status !== 'active'}
+                                                    disabled={cert.status !== 'active' || pendingAction !== null}
                                                 >
                                                     <Send className="w-5 h-5" />
                                                 </button>
@@ -710,19 +791,20 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 <p className="text-xs text-gray-500 mt-1">Maximum 90 days. Leave empty for indefinite.</p>
                             </div>
                         </div>
+                        <ActionError message={actionError} className="mt-4" />
                         <div className="flex gap-3 mt-6">
                             <button
-                                onClick={() => { setShowFreezeModal(false); setFreezeReason(''); setFreezingCertId(null); }}
+                                onClick={() => { setShowFreezeModal(false); setFreezeReason(''); setFreezingCertId(null); setActionError(null); }}
                                 className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={confirmFreeze}
-                                disabled={!freezeReason}
+                                disabled={!freezeReason || pendingAction === 'freeze'}
                                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                             >
-                                Freeze
+                                {pendingAction === 'freeze' ? 'Freezing…' : 'Freeze'}
                             </button>
                         </div>
                     </div>
@@ -752,18 +834,20 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 placeholder="Enter the reason for revocation..."
                             />
                         </div>
+                        <ActionError message={actionError} className="mt-4" />
                         <div className="flex gap-3 mt-6">
                             <button
-                                onClick={() => { setShowRevokeModal(false); setRevokeReason(''); setRevokingCertIds([]); }}
+                                onClick={() => { setShowRevokeModal(false); setRevokeReason(''); setRevokingCertIds([]); setActionError(null); }}
                                 className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={confirmRevoke}
-                                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                                disabled={pendingAction === 'revoke'}
+                                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
                             >
-                                Revoke
+                                {pendingAction === 'revoke' ? 'Revoking…' : 'Revoke'}
                             </button>
                         </div>
                     </div>
@@ -821,19 +905,20 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 />
                             </div>
                         </div>
+                        <ActionError message={actionError} className="mt-4" />
                         <div className="flex gap-3 mt-6">
                             <button
-                                onClick={() => setShowTransferModal(false)}
+                                onClick={() => { setShowTransferModal(false); setActionError(null); }}
                                 className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={confirmTransfer}
-                                disabled={!transferData.newOwnerEmail || !transferData.newOwnerName}
+                                disabled={!transferData.newOwnerEmail || !transferData.newOwnerName || pendingAction === 'transfer'}
                                 className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
                             >
-                                Initiate Transfer
+                                {pendingAction === 'transfer' ? 'Initiating…' : 'Initiate Transfer'}
                             </button>
                         </div>
                     </div>
@@ -850,7 +935,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 <h3 className="text-lg font-semibold dark:text-white">Certificate History</h3>
                             </div>
                             <button 
-                                onClick={() => setShowHistoryModal(false)}
+                                onClick={() => { setShowHistoryModal(false); setActionError(null); }}
                                 className="text-gray-500 hover:text-gray-700 dark:text-gray-400"
                             >
                                 <XCircle className="w-6 h-6" />
@@ -861,6 +946,8 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                             <div className="flex justify-center py-8">
                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                             </div>
+                        ) : actionError ? (
+                            <ActionError message={actionError} />
                         ) : certHistory.length === 0 ? (
                             <p className="text-center py-8 text-gray-500 dark:text-gray-400">No history found for this certificate.</p>
                         ) : (
@@ -891,7 +978,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
 
                         <div className="mt-8">
                             <button
-                                onClick={() => setShowHistoryModal(false)}
+                                onClick={() => { setShowHistoryModal(false); setActionError(null); }}
                                 className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white"
                             >
                                 Close

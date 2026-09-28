@@ -1,8 +1,18 @@
-import { Component, ReactNode } from "react";
+import { Component, ErrorInfo, ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  /**
+   * Invoked after the boundary clears its own error state.
+   *
+   * A `React.lazy` import that rejects (chunk missing after a deploy, bad
+   * module specifier, offline) is cached by React, so re-rendering the same
+   * lazy component re-throws the original error. Callers that know their child
+   * is a lazy chunk can use this hook to recover properly — e.g. reload the
+   * page to pick up the current asset manifest.
+   */
+  onReset?: () => void;
 }
 
 interface State {
@@ -17,9 +27,15 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, message: error.message };
   }
 
-  componentDidCatch(error: Error) {
-    console.error("ErrorBoundary caught:", error);
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("ErrorBoundary caught:", error, info.componentStack);
   }
+
+  private reset = () => {
+    const { onReset } = this.props;
+    this.setState({ hasError: false, message: "" });
+    onReset?.();
+  };
 
   render() {
     if (this.state.hasError) {
@@ -30,7 +46,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <p className="text-gray-500 mb-4">{this.state.message || "An unexpected error occurred."}</p>
           <button
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            onClick={() => this.setState({ hasError: false, message: "" })}
+            onClick={this.reset}
           >
             Try again
           </button>

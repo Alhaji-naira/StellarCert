@@ -148,6 +148,7 @@ export class AuthController {
   }
 
   @Post('2fa/verify')
+  @RateLimit({ limit: 5, windowMs: 60_000, keyBy: 'ip' })
   @Public()
   @HttpCode(HttpStatus.OK)
   async verify2fa(

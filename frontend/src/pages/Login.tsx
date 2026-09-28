@@ -11,11 +11,13 @@ const Login = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = getSafeRedirectPath(searchParams.get("returnUrl"));
+  const messageParam = searchParams.get("message");
   const { login } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(messageParam);
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
@@ -143,6 +145,7 @@ const Login = () => {
           {isLogin ? "Welcome Back" : "Create Account"}
         </h1>
         {error && <p className="text-red-600 dark:text-red-400 text-center mb-4">{error}</p>}
+        {successMessage && <p className="text-green-600 dark:text-green-400 text-center mb-4">{successMessage}</p>}
         <form onSubmit={handleSubmit} className="space-y-6">
           {!isLogin && (
             <div className="grid grid-cols-2 gap-4">

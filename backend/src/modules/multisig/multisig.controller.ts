@@ -11,7 +11,15 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { MultisigService, RequestStatus, Pagination } from './multisig.service';
+import {
+  MultisigService,
+  RequestStatus,
+  Pagination,
+  PendingRequest,
+  MultisigConfig,
+  SignatureResult,
+  PaginatedResult,
+} from './multisig.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -25,16 +33,12 @@ class InitMultisigConfigDto {
   threshold: number;
   signers: string[];
   maxSigners: number;
-
-  constructor(private readonly logger: LoggingService) {}
 }
 
 class UpdateMultisigConfigDto {
   threshold?: number;
   signers?: string[];
   maxSigners?: number;
-
-  constructor(private readonly logger: LoggingService) {}
 }
 
 class ProposeCertificateDto {
@@ -43,33 +47,11 @@ class ProposeCertificateDto {
   recipient: string;
   metadata: string;
   expirationDays: number;
-
-  constructor(private readonly logger: LoggingService) {}
-}
-
-class ApproveRequestDto {
-  requestId: string;
-
-  constructor(private readonly logger: LoggingService) {}
 }
 
 class RejectRequestDto {
   requestId: string;
   reason?: string;
-
-  constructor(private readonly logger: LoggingService) {}
-}
-
-class IssueCertificateDto {
-  requestId: string;
-
-  constructor(private readonly logger: LoggingService) {}
-}
-
-class CancelRequestDto {
-  requestId: string;
-
-  constructor(private readonly logger: LoggingService) {}
 }
 
 @Controller('multisig')
@@ -137,7 +119,7 @@ export class MultisigController {
   async proposeCertificate(
     @CurrentUser() user: User,
     @Body() proposeDto: ProposeCertificateDto,
-  ): Promise<any> {
+  ): Promise<PendingRequest> {
     try {
       const result = await this.multisigService.proposeCertificate(
         user.stellarPublicKey,
@@ -165,7 +147,7 @@ export class MultisigController {
   async approveRequest(
     @CurrentUser() user: User,
     @Param('requestId') requestId: string,
-  ): Promise<any> {
+  ): Promise<SignatureResult> {
     try {
       const result = await this.multisigService.approveRequest(
         user.stellarPublicKey,
@@ -187,7 +169,7 @@ export class MultisigController {
     @CurrentUser() user: User,
     @Param('requestId') requestId: string,
     @Body() rejectDto: RejectRequestDto,
-  ): Promise<any> {
+  ): Promise<SignatureResult> {
     try {
       const result = await this.multisigService.rejectRequest(
         user.stellarPublicKey,
@@ -251,7 +233,7 @@ export class MultisigController {
 
   @Get('config/:issuer')
   @Roles(UserRole.ADMIN, UserRole.ISSUER, UserRole.USER)
-  async getMultisigConfig(@Param('issuer') issuer: string): Promise<any> {
+  async getMultisigConfig(@Param('issuer') issuer: string): Promise<MultisigConfig> {
     try {
       const config = await this.multisigService.getMultisigConfig(issuer);
       return config;
@@ -269,7 +251,7 @@ export class MultisigController {
 
   @Get('request/:requestId')
   @Roles(UserRole.ADMIN, UserRole.ISSUER, UserRole.USER)
-  async getPendingRequest(@Param('requestId') requestId: string): Promise<any> {
+  async getPendingRequest(@Param('requestId') requestId: string): Promise<PendingRequest> {
     try {
       const request = await this.multisigService.getPendingRequest(requestId);
       return request;
@@ -288,7 +270,7 @@ export class MultisigController {
     @Param('issuer') issuer: string,
     @Query('page') page: number = 0,
     @Query('limit') limit: number = 20,
-  ): Promise<any> {
+  ): Promise<PaginatedResult> {
     try {
       const pagination: Pagination = {
         page: Number(page),
@@ -317,7 +299,7 @@ export class MultisigController {
     @Param('signer') signer: string,
     @Query('page') page: number = 0,
     @Query('limit') limit: number = 20,
-  ): Promise<any> {
+  ): Promise<PaginatedResult> {
     try {
       const pagination: Pagination = {
         page: Number(page),
@@ -364,7 +346,7 @@ export class MultisigController {
   @Roles(UserRole.ADMIN, UserRole.ISSUER, UserRole.USER)
   async getRequestStatus(
     @Param('requestId') requestId: string,
-  ): Promise<{ status: number }> {
+  ): Promise<{ status: RequestStatus }> {
     try {
       const request = await this.multisigService.getPendingRequest(requestId);
       return { status: request.status };
