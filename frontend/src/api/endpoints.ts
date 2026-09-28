@@ -374,7 +374,7 @@ export const userApi = {
     });
   },
   getByEmail: fetchUserByEmail,
-  listAll: async (
+  getAll: async (
     params?: Record<string, string | number | boolean>,
   ): Promise<PaginatedResponse<User>> => {
     const searchParams = new URLSearchParams();
@@ -386,15 +386,6 @@ export const userApi = {
     return apiClient<PaginatedResponse<User>>(
       `/users?${searchParams.toString()}`,
     );
-  },
-  getAll: async (params?: Record<string, string | number | boolean>) => {
-    const searchParams = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        searchParams.set(key, String(value));
-      });
-    }
-    return apiClient<PaginatedResponse<User>>(`/users?${searchParams.toString()}`);
   },
   getById: async (id: string) => apiClient<User>(`/users/${id}`),
   updateRole: async (id: string, role: string) =>
