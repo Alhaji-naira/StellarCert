@@ -257,7 +257,17 @@ impl AdminMultisigContract {
         );
     }
 
-    pub fn get_proposal(env: Env, proposal_id: String) -> AdminProposal {
+    /// Get a governance proposal.
+    ///
+    /// Proposal contents are sensitive governance data (pending upgrades, issuer
+    /// removals, config changes), so reads are restricted to registered admin
+    /// signers: the caller must authenticate and be present in the signer set.
+    pub fn get_proposal(env: Env, proposal_id: String, caller: Address) -> AdminProposal {
+        caller.require_auth();
+
+        let config = Self::get_config(env.clone());
+        Self::require_signer(&config.signers, &caller);
+
         env.storage()
             .persistent()
             .get(&AdminMultisigDataKey::AdminProposal(proposal_id))
