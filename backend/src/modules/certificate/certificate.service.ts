@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Logger,
   NotFoundException,
   InternalServerErrorException,
@@ -460,8 +461,11 @@ export class CertificateService {
     id: string,
     reason?: string,
     durationDays?: number,
+    userId?: string,
+    userRole?: string,
   ): Promise<Certificate> {
     const certificate = await this.findOne(id);
+    this.assertCertificateOwnership(certificate, userId, userRole);
 
     if (certificate.status !== CertificateStatus.ACTIVE) {
       throw new ConflictException(
@@ -495,7 +499,7 @@ export class CertificateService {
 
     // Trigger webhook event
     await this.webhooksService.triggerEvent(
-      WebhookEvent.CERTIFICATE_REVOKED, // Using existing revoked event, could add new freeze event
+      WebhookEvent.CERTIFICATE_FROZEN,
       savedCertificate.issuerId,
       {
         id: savedCertificate.id,
@@ -512,8 +516,14 @@ export class CertificateService {
     return savedCertificate;
   }
 
-  async unfreeze(id: string, reason?: string): Promise<Certificate> {
+  async unfreeze(
+    id: string,
+    reason?: string,
+    userId?: string,
+    userRole?: string,
+  ): Promise<Certificate> {
     const certificate = await this.findOne(id);
+    this.assertCertificateOwnership(certificate, userId, userRole);
 
     if (certificate.status !== CertificateStatus.FROZEN) {
       throw new ConflictException(
@@ -534,7 +544,7 @@ export class CertificateService {
 
     // Trigger webhook event
     await this.webhooksService.triggerEvent(
-      WebhookEvent.CERTIFICATE_ISSUED, // Using existing issued event, could add new unfreeze event
+      WebhookEvent.CERTIFICATE_UNFROZEN,
       savedCertificate.issuerId,
       {
         id: savedCertificate.id,
@@ -976,12 +986,44 @@ export class CertificateService {
     );
   }
 
+  /**
+   * Assert that the caller is allowed to mutate a certificate.
+   *
+   * The issuing account may change only its own certificates; administrators
+   * may change any certificate for moderation and recovery. Every other
+   * caller — including an authenticated issuer holding another issuer's
+   * certificate id — is rejected before any state is written.
+   *
+   * @throws ForbiddenException when the caller is neither the issuer nor an admin
+   */
+  private assertCertificateOwnership(
+    certificate: Certificate,
+    userId?: string,
+    userRole?: string,
+  ): void {
+    if (userRole === UserRole.ADMIN) {
+      return;
+    }
+    if (!userId) {
+      throw new ForbiddenException(
+        'Issuer identity is required to modify this certificate',
+      );
+    }
+    if (certificate.issuerId !== userId) {
+      throw new ForbiddenException(
+        'You can only modify certificates issued by your own account',
+      );
+    }
+  }
+
   async updateWithUser(
     id: string,
     updateCertificateDto: UpdateCertificateDto,
     userId: string,
+    userRole?: string,
   ): Promise<Certificate> {
     const certificate = await this.findOne(id);
+    this.assertCertificateOwnership(certificate, userId, userRole);
     Object.assign(certificate, updateCertificateDto);
     return this.certificateRepository.save(certificate);
   }
@@ -992,7 +1034,10 @@ export class CertificateService {
     userId: string,
     ipAddress: string,
     userAgent: string,
+    userRole?: string,
   ): Promise<Certificate> {
+    const certificate = await this.findOne(id);
+    this.assertCertificateOwnership(certificate, userId, userRole);
     return this.revoke(id, dto.reason);
   }
 
