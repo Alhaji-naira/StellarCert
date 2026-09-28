@@ -13,3 +13,4 @@ export {
 } from './duplicate-detection.dto';
 export * from './create-certificate.dto';
 export * from './update-certificate.dto';
+export * from './export-filters.dto';

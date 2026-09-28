@@ -11,12 +11,25 @@ import { MetadataSchemaService } from '../metadata-schema/services/metadata-sche
 import { FilesService } from '../files/services/files.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { SorobanService } from '../stellar/services/soroban.service';
+import { UserRole } from '../users/entities/user.entity';
+import { MAX_EXPORT_LIMIT, MAX_PAGE_LIMIT } from './dto/export-filters.dto';
 
 describe('CertificateService', () => {
   let service: CertificateService;
+  const mockQueryBuilder = {
+    leftJoinAndSelect: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    getCount: jest.fn().mockResolvedValue(0),
+    getMany: jest.fn().mockResolvedValue([]),
+    getOne: jest.fn().mockResolvedValue(null),
+  };
   const certificateRepository = {
     update: jest.fn(),
-    createQueryBuilder: jest.fn(),
+    createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
   };
   const verificationRepository = {};
   const duplicateDetectionService = {};
@@ -116,19 +129,183 @@ describe('CertificateService', () => {
     }
   });
 
+  describe('findAll limit capping and scoping', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should cap limit at MAX_PAGE_LIMIT (100) when limit exceeds 100', async () => {
+      await service.findAll(1, 250, 'issuer-1', 'active');
+
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_PAGE_LIMIT);
+      expect(mockQueryBuilder.skip).toHaveBeenCalledWith(0);
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'certificate.issuerId = :issuerId',
+        { issuerId: 'issuer-1' },
+      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'certificate.status = :status',
+        { status: 'active' },
+      );
+    });
+
+    it('should use provided limit when within acceptable range', async () => {
+      await service.findAll(2, 25);
+
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(25);
+      expect(mockQueryBuilder.skip).toHaveBeenCalledWith(25);
+    });
+  });
+
+  describe('exportCertificates scoping and limits', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should force non-admin issuer to their own currentUserId', async () => {
+      await service.exportCertificates(
+        'other-issuer-id',
+        'active',
+        undefined,
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'certificate.issuerId = :issuerId',
+        { issuerId: 'my-issuer-id' },
+      );
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_EXPORT_LIMIT);
+    });
+
+    it('should allow admin to export any issuer certificates', async () => {
+      await service.exportCertificates(
+        'other-issuer-id',
+        'active',
+        undefined,
+        'admin-id',
+        UserRole.ADMIN,
+      );
+
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'certificate.issuerId = :issuerId',
+        { issuerId: 'other-issuer-id' },
+      );
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_EXPORT_LIMIT);
+    });
+
+    it('should cap requested limit at MAX_EXPORT_LIMIT', async () => {
+      await service.exportCertificates(
+        undefined,
+        undefined,
+        5000,
+        'admin-id',
+        UserRole.ADMIN,
+      );
+
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_EXPORT_LIMIT);
+    });
+  });
+
+  describe('bulkExport scoping and limits', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockQueryBuilder.getMany.mockResolvedValue([
+        {
+          id: 'cert-1',
+          recipientName: 'Alice',
+          recipientEmail: 'alice@example.com',
+          title: 'Cert 1',
+          courseName: 'Course 1',
+          issuedAt: new Date('2026-01-01'),
+          status: 'active',
+        },
+      ]);
+    });
+
+    it('should force non-admin issuer to their own issuerId and filter certificates', async () => {
+      await service.bulkExport(
+        ['cert-1', 'cert-2'],
+        { issuerId: 'attacker-target-id', status: 'active' },
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'certificate.issuerId = :issuerId',
+        { issuerId: 'my-issuer-id' },
+      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'certificate.id IN (:...certificateIds)',
+        { certificateIds: ['cert-1', 'cert-2'] },
+      );
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_EXPORT_LIMIT);
+    });
+
+    it('should allow admin to filter by target issuerId', async () => {
+      await service.bulkExport(
+        [],
+        { issuerId: 'target-issuer-id' },
+        'target-issuer-id',
+        UserRole.ADMIN,
+      );
+
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'certificate.issuerId = :issuerId',
+        { issuerId: 'target-issuer-id' },
+      );
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_EXPORT_LIMIT);
+    });
+  });
+
+  describe('exportAllFiltered scoping and limits', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+    });
+
+    it('should force non-admin issuer to their own issuerId', async () => {
+      await service.exportAllFiltered(
+        { issuerId: 'attacker-target-id', status: 'active' },
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'certificate.issuerId = :issuerId',
+        { issuerId: 'my-issuer-id' },
+      );
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_EXPORT_LIMIT);
+    });
+
+    it('should allow admin to export all certificates across issuers without issuerId filter', async () => {
+      await service.exportAllFiltered(
+        { status: 'active' },
+        undefined,
+        UserRole.ADMIN,
+      );
+
+      const calls = mockQueryBuilder.andWhere.mock.calls;
+      const issuerCalls = calls.filter((c: any[]) => c[0].includes('issuerId'));
+      expect(issuerCalls).toHaveLength(0);
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(MAX_EXPORT_LIMIT);
+    });
+  });
+
   describe('syncChain (#733)', () => {
-    const certificate = {
-      id: 'cert-1',
-      verificationCode: 'AB12CD34',
-      issuerStellarAddress: 'GISSUER',
-      recipientStellarAddress: 'GRECIPIENT',
-      expiresAt: new Date('2027-01-01T00:00:00.000Z'),
-      stellarTransactionHash: undefined,
-    } as unknown as Certificate;
+    let certificate: Certificate;
 
     beforeEach(() => {
       jest.clearAllMocks();
       sorobanService.isConfigured.mockReturnValue(false);
+      certificate = {
+        id: 'cert-1',
+        verificationCode: 'AB12CD34',
+        issuerStellarAddress: 'GISSUER',
+        recipientStellarAddress: 'GRECIPIENT',
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+        stellarTransactionHash: undefined,
+      } as unknown as Certificate;
     });
 
     it('returns the existing hash without touching the chain when already synced', async () => {

@@ -26,6 +26,7 @@ import { WebhookEvent } from '../webhooks/entities/webhook-subscription.entity';
 import { MetadataSchemaService } from '../metadata-schema/services/metadata-schema.service';
 import { UserRole } from '../users/entities/user.entity';
 import { SorobanService } from '../stellar/services/soroban.service';
+import { MAX_EXPORT_LIMIT, MAX_PAGE_LIMIT } from './dto/export-filters.dto';
 import { CryptoUtils } from '../../common/utils/crypto.utils';
 
 @Injectable()
@@ -324,6 +325,8 @@ export class CertificateService {
     issuerId?: string,
     status?: string,
   ): Promise<{ certificates: Certificate[]; total: number }> {
+    const safePage = Math.max(1, page || 1);
+    const safeLimit = Math.min(Math.max(1, limit || 10), MAX_PAGE_LIMIT);
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
@@ -339,8 +342,8 @@ export class CertificateService {
 
     const total = await queryBuilder.getCount();
     const certificates = await queryBuilder
-      .skip((page - 1) * limit)
-      .take(limit)
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
       .getMany();
 
     return { certificates, total };
@@ -594,14 +597,30 @@ export class CertificateService {
   async exportCertificates(
     issuerId?: string,
     status?: string,
+    limit: number = MAX_EXPORT_LIMIT,
+    currentUserId?: string,
+    userRole?: string,
   ): Promise<Certificate[]> {
+    const effectiveIssuerId =
+      userRole && userRole !== UserRole.ADMIN
+        ? currentUserId
+        : (issuerId ?? currentUserId);
+
+    const safeLimit = Math.min(
+      Math.max(1, limit || MAX_EXPORT_LIMIT),
+      MAX_EXPORT_LIMIT,
+    );
+
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
-      .orderBy('certificate.issuedAt', 'DESC');
+      .orderBy('certificate.issuedAt', 'DESC')
+      .take(safeLimit);
 
-    if (issuerId) {
-      queryBuilder.andWhere('certificate.issuerId = :issuerId', { issuerId });
+    if (effectiveIssuerId) {
+      queryBuilder.andWhere('certificate.issuerId = :issuerId', {
+        issuerId: effectiveIssuerId,
+      });
     }
 
     if (status) {
@@ -611,11 +630,33 @@ export class CertificateService {
     return queryBuilder.getMany();
   }
 
-  async bulkExport(certificateIds: string[], filters?: any): Promise<string> {
+  async bulkExport(
+    certificateIds: string[],
+    filters?: any,
+    issuerId?: string,
+    userRole?: string,
+  ): Promise<string> {
+    const effectiveIssuerId =
+      userRole && userRole !== UserRole.ADMIN
+        ? issuerId
+        : (issuerId ?? (userRole === UserRole.ADMIN ? filters?.issuerId : undefined));
+
+    const maxLimit = Math.min(
+      Math.max(1, filters?.limit || MAX_EXPORT_LIMIT),
+      MAX_EXPORT_LIMIT,
+    );
+
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
-      .orderBy('certificate.issuedAt', 'DESC');
+      .orderBy('certificate.issuedAt', 'DESC')
+      .take(maxLimit);
+
+    if (effectiveIssuerId) {
+      queryBuilder.andWhere('certificate.issuerId = :issuerId', {
+        issuerId: effectiveIssuerId,
+      });
+    }
 
     // Apply certificate ID filter if provided
     if (certificateIds && certificateIds.length > 0) {
@@ -650,17 +691,44 @@ export class CertificateService {
           endDate: new Date(filters.endDate),
         });
       }
+
+      if (filters.issuerId && !effectiveIssuerId) {
+        queryBuilder.andWhere('certificate.issuerId = :filterIssuerId', {
+          filterIssuerId: filters.issuerId,
+        });
+      }
     }
 
     const certificates = await queryBuilder.getMany();
     return this.convertToCSV(certificates);
   }
 
-  async exportAllFiltered(filters?: any): Promise<string> {
+  async exportAllFiltered(
+    filters?: any,
+    issuerId?: string,
+    userRole?: string,
+  ): Promise<string> {
+    const effectiveIssuerId =
+      userRole && userRole !== UserRole.ADMIN
+        ? issuerId
+        : (issuerId ?? (userRole === UserRole.ADMIN ? filters?.issuerId : undefined));
+
+    const maxLimit = Math.min(
+      Math.max(1, filters?.limit || MAX_EXPORT_LIMIT),
+      MAX_EXPORT_LIMIT,
+    );
+
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
-      .orderBy('certificate.issuedAt', 'DESC');
+      .orderBy('certificate.issuedAt', 'DESC')
+      .take(maxLimit);
+
+    if (effectiveIssuerId) {
+      queryBuilder.andWhere('certificate.issuerId = :issuerId', {
+        issuerId: effectiveIssuerId,
+      });
+    }
 
     // Apply filters
     if (filters) {
@@ -686,6 +754,12 @@ export class CertificateService {
       if (filters.endDate) {
         queryBuilder.andWhere('certificate.issuedAt <= :endDate', {
           endDate: new Date(filters.endDate),
+        });
+      }
+
+      if (filters.issuerId && !effectiveIssuerId) {
+        queryBuilder.andWhere('certificate.issuerId = :filterIssuerId', {
+          filterIssuerId: filters.issuerId,
         });
       }
     }

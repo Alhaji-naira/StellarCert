@@ -14,6 +14,7 @@ import {
   UseInterceptors,
   HttpCode,
   HttpStatus,
+  UsePipes,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { CertificateService } from './certificate.service';
@@ -49,8 +50,14 @@ interface AuthenticatedUser {
   role: UserRole;
 }
 import { CertificateQrResponseDto } from './dto/certificate-qr-response.dto';
-import { ExportFiltersDto, BulkExportDto } from './dto/export-filters.dto';
+import {
+  ExportFiltersDto,
+  BulkExportDto,
+  MAX_PAGE_LIMIT,
+  MAX_EXPORT_LIMIT,
+} from './dto/export-filters.dto';
 import { IpRateLimitGuard } from '../../common/guards/ip-rate-limit.guard';
+import { BulkSizeLimitPipe } from '../../common/pipes/bulk-size-limit.pipe';
 
 @ApiTags('Certificates')
 @Controller('certificates')
@@ -78,13 +85,17 @@ export class CertificateController {
     @Query('limit') limit = 10,
     @Query('issuerId') issuerId?: string,
     @Query('status') status?: string,
+    @CurrentUser('id') currentUserId?: string,
+    @CurrentUser('role') userRole?: string,
   ) {
-    const pageNum = +page;
-    const limitNum = +limit;
+    const pageNum = Math.max(1, +page || 1);
+    const limitNum = Math.min(Math.max(1, +limit || 10), MAX_PAGE_LIMIT);
+    const effectiveIssuerId =
+      userRole === UserRole.ADMIN ? issuerId : (currentUserId ?? issuerId);
     const result = await this.certificateService.findAll(
       pageNum,
       limitNum,
-      issuerId,
+      effectiveIssuerId,
       status,
     );
     // Service returns { certificates, total }; normalize to { data, total, page, limit, totalPages }
@@ -239,11 +250,28 @@ export class CertificateController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ISSUER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Export certificates' })
+  @ApiQuery({ name: 'issuerId', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
   async exportCertificates(
     @Query('issuerId') issuerId?: string,
     @Query('status') status?: string,
+    @Query('limit') limit?: number,
+    @CurrentUser('id') currentUserId?: string,
+    @CurrentUser('role') userRole?: string,
   ) {
-    return this.certificateService.exportCertificates(issuerId, status);
+    const effectiveIssuerId =
+      userRole === UserRole.ADMIN ? issuerId : (currentUserId ?? issuerId);
+    const limitNum = limit
+      ? Math.min(Math.max(1, +limit), MAX_EXPORT_LIMIT)
+      : MAX_EXPORT_LIMIT;
+    return this.certificateService.exportCertificates(
+      effectiveIssuerId,
+      status,
+      limitNum,
+      currentUserId,
+      userRole,
+    );
   }
 
   // ─── Single Certificate ───────────────────────────────────────────────────────
@@ -447,11 +475,24 @@ export class CertificateController {
   @Post('export')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ISSUER, UserRole.ADMIN)
+  @UsePipes(new BulkSizeLimitPipe())
   @ApiOperation({ summary: 'Bulk export certificates with filters' })
-  async bulkExport(@Body() bulkExportDto: BulkExportDto, @Res() res: any) {
+  async bulkExport(
+    @Body() bulkExportDto: BulkExportDto,
+    @Res() res: any,
+    @CurrentUser('id') currentUserId?: string,
+    @CurrentUser('role') userRole?: string,
+  ) {
+    const effectiveIssuerId =
+      userRole === UserRole.ADMIN
+        ? bulkExportDto.filters?.issuerId
+        : (currentUserId ?? bulkExportDto.filters?.issuerId);
+
     const csvData = await this.certificateService.bulkExport(
       bulkExportDto.certificateIds || [],
       bulkExportDto.filters,
+      effectiveIssuerId,
+      userRole,
     );
 
     res.setHeader('Content-Type', 'text/csv');
@@ -466,8 +507,22 @@ export class CertificateController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ISSUER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Export all certificates matching filters' })
-  async exportAllFiltered(@Body() filters: ExportFiltersDto, @Res() res: any) {
-    const csvData = await this.certificateService.exportAllFiltered(filters);
+  async exportAllFiltered(
+    @Body() filters: ExportFiltersDto,
+    @Res() res: any,
+    @CurrentUser('id') currentUserId?: string,
+    @CurrentUser('role') userRole?: string,
+  ) {
+    const effectiveIssuerId =
+      userRole === UserRole.ADMIN
+        ? filters?.issuerId
+        : (currentUserId ?? filters?.issuerId);
+
+    const csvData = await this.certificateService.exportAllFiltered(
+      filters,
+      effectiveIssuerId,
+      userRole,
+    );
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader(
