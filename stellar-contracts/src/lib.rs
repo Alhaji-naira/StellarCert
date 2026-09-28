@@ -31,10 +31,13 @@ pub mod persistent;
 mod admin_multisig;
 // Explicit re-exports replace `pub use admin_multisig::*`
 pub use admin_multisig::{
-    AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigDataKey, AdminProposal,
-    AdminProposalStatus, ProposalApprovedEvent, ProposalCanceledEvent, ProposalCreatedEvent,
+    AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigContractClient,
+    AdminMultisigDataKey, AdminProposal, AdminProposalStatus, ProposalApprovedEvent,
+    ProposalCanceledEvent, ProposalCreatedEvent,
 };
 
+#[cfg(test)]
+mod admin_multisig_test;
 #[cfg(test)]
 mod crl_test;
 #[cfg(test)]

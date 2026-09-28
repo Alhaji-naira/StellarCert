@@ -23,11 +23,23 @@ pub struct AdminMultisigConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AdminProposalStatus {
+    /// Submitted and collecting approvals.
     Pending,
+    /// Threshold reached; the action is about to be (or has just been) executed.
     Approved,
+    /// The action ran successfully.
     Executed,
+    /// The proposal window closed before the threshold was reached.
     Expired,
+    /// Rejected without executing. Reserved for a proposal that is voted down
+    /// (no rejection entry point exists yet); a proposer cancellation is
+    /// recorded as `Cancelled` instead so the two are distinguishable in audit
+    /// logs and in the event stream.
     Rejected,
+    /// Withdrawn by its proposer via `cancel_proposal`. Terminal, like
+    /// `Rejected`, but deliberately a distinct status so a cancellation is
+    /// never reported as a rejection.
+    Cancelled,
 }
 
 #[contracttype]
@@ -227,6 +239,14 @@ impl AdminMultisigContract {
         status
     }
 
+    /// Withdraws a pending proposal. Only the original proposer can cancel.
+    ///
+    /// The stored status becomes [`AdminProposalStatus::Cancelled`] (and the
+    /// `proposal/canceled` event is emitted), which is intentionally distinct
+    /// from [`AdminProposalStatus::Rejected`]: off-chain audit logs and the
+    /// event stream must be able to tell a proposer cancellation apart from a
+    /// proposal that was voted down. A `Rejected` proposal never executed; a
+    /// `Cancelled` proposal was withdrawn before it could.
     pub fn cancel_proposal(env: Env, proposal_id: String, proposer: Address) {
         proposer.require_auth();
 
@@ -245,7 +265,7 @@ impl AdminMultisigContract {
             panic!("Proposal is not pending");
         }
 
-        proposal.status = AdminProposalStatus::Rejected;
+        proposal.status = AdminProposalStatus::Cancelled;
         Self::set_persistent(&env, &proposal_key, &proposal);
 
         env.events().publish(
