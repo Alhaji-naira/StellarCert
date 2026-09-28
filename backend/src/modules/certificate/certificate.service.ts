@@ -28,6 +28,7 @@ import { UserRole } from '../users/entities/user.entity';
 import { SorobanService } from '../stellar/services/soroban.service';
 import { MAX_EXPORT_LIMIT, MAX_PAGE_LIMIT } from './dto/export-filters.dto';
 import { CryptoUtils } from '../../common/utils/crypto.utils';
+import { toCsv } from '../../common/utils/csv.utils';
 
 @Injectable()
 export class CertificateService {
@@ -799,12 +800,7 @@ export class CertificateService {
       cert.expiresAt ? cert.expiresAt.toISOString().split('T')[0] : '',
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
-    ].join('\n');
-
-    return csvContent;
+    return toCsv(headers, rows);
   }
 
   async remove(id: string): Promise<void> {
