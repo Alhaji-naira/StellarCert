@@ -103,6 +103,12 @@ impl AdminMultisigContract {
         crate::persistent::extend_ttl(env, key, None);
     }
 
+    /// Installs the admin signer set.
+    ///
+    /// Every proposed signer must authorize. There is no admin address to
+    /// authenticate against at this point, and a signer set is exactly the
+    /// thing being established — so consent from the whole set is the only
+    /// check that actually means anything here.
     pub fn init_admin_multisig(
         env: Env,
         threshold: u32,
@@ -110,6 +116,10 @@ impl AdminMultisigContract {
         proposal_window: u32,
     ) {
         Self::validate_config(&signers, threshold, proposal_window);
+
+        for signer in signers.iter() {
+            signer.require_auth();
+        }
 
         if env
             .storage()

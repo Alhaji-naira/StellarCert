@@ -230,6 +230,7 @@ fn test_issue_approved_certificate() {
     let certificate_contract_id = env.register(CertificateContract, ());
     let certificate_contract_address = certificate_contract_id.clone();
     let certificate_client = CertificateContractClient::new(&env, &certificate_contract_id);
+    env.mock_all_auths();
     certificate_client.initialize(&admin);
     certificate_client.add_issuer(&issuer);
     client.set_certificate_contract(&certificate_contract_address);
@@ -491,6 +492,7 @@ fn test_initialize_stores_admin() {
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
+    env.mock_all_auths();
     client.initialize(&admin);
 
     assert_eq!(client.get_admin(), admin);
@@ -504,7 +506,9 @@ fn test_initialize_rejects_second_call() {
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
+    env.mock_all_auths();
     client.initialize(&admin);
+    env.mock_all_auths();
     client.initialize(&Address::generate(&env));
 }
 
@@ -515,6 +519,7 @@ fn test_set_certificate_contract_success() {
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
+    env.mock_all_auths();
     client.initialize(&admin);
 
     env.mock_all_auths();
@@ -550,9 +555,15 @@ fn test_set_certificate_contract_rejects_missing_admin_auth() {
     let contract_id = env.register(MultisigCertificateContract, ());
     let client = MultisigCertificateContractClient::new(&env, &contract_id);
 
-    // Do NOT invoke mock_all_auths() — a random caller must not be able to
-    // authorize the stored admin and hijack the certificate contract pointer.
     let admin = Address::generate(&env);
+
+    // initialize() now requires the admin's auth, so mock it for that call
+    // only...
+    env.mock_all_auths();
     client.initialize(&admin);
+
+    // ...then drop all auth again. A random caller must not be able to
+    // authorize the stored admin and hijack the certificate contract pointer.
+    env.set_auths(&[]);
     client.set_certificate_contract(&Address::generate(&env));
 }
