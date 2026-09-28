@@ -15,6 +15,7 @@ import {
   HttpCode,
   HttpStatus,
   UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { CertificateService } from './certificate.service';
@@ -38,6 +39,10 @@ import { Public } from '../../common/decorators/public.decorator';
 import { UserRole } from '../../common/constants/roles';
 import { IssueCertificateDto } from './dto/issue-certificate.dto';
 import { RevokeCertificateDto } from './dto/revoke-certificate.dto';
+import {
+  FreezeCertificateDto,
+  UnfreezeCertificateDto,
+} from './dto/freeze-certificate.dto';
 import { SearchCertificatesDto } from './dto/search-certificates.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
@@ -395,7 +400,7 @@ export class CertificateController {
     @Body() dto: UpdateCertificateDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.certificateService.updateWithUser(id, dto, user.id);
+    return this.certificateService.updateWithUser(id, dto, user.id, user.role);
   }
 
   // ─── Revoke ───────────────────────────────────────────────────────────────────
@@ -420,6 +425,7 @@ export class CertificateController {
       user.id,
       ipAddress,
       userAgent,
+      user.role,
     );
   }
 
@@ -437,21 +443,33 @@ export class CertificateController {
   @Patch(':id/freeze')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ISSUER, UserRole.ADMIN)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ summary: 'Freeze certificate' })
   async freeze(
-    @Param('id') id: string,
-    @Body('reason') reason?: string,
-    @Body('durationDays') durationDays?: number,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: FreezeCertificateDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.certificateService.freeze(id, reason, durationDays);
+    return this.certificateService.freeze(
+      id,
+      dto.reason,
+      dto.durationDays,
+      user.id,
+      user.role,
+    );
   }
 
   @Patch(':id/unfreeze')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ISSUER, UserRole.ADMIN)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ summary: 'Unfreeze certificate' })
-  async unfreeze(@Param('id') id: string, @Body('reason') reason?: string) {
-    return this.certificateService.unfreeze(id, reason);
+  async unfreeze(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UnfreezeCertificateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.certificateService.unfreeze(id, dto.reason, user.id, user.role);
   }
 
   @Post('bulk-revoke')

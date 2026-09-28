@@ -1,15 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { CertificateService } from './certificate.service';
 import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Certificate } from './entities/certificate.entity';
+import { CertificateStatus } from './constants/certificate-status.enum';
 import { Verification } from './entities/verification.entity';
 import { User } from '../users/entities/user.entity';
 import { DuplicateDetectionService } from './services/duplicate-detection.service';
 import { MetadataSchemaService } from '../metadata-schema/services/metadata-schema.service';
 import { FilesService } from '../files/services/files.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
+import { WebhookEvent } from '../webhooks/entities/webhook-subscription.entity';
 import { SorobanService } from '../stellar/services/soroban.service';
 import { UserRole } from '../users/entities/user.entity';
 import { MAX_EXPORT_LIMIT, MAX_PAGE_LIMIT } from './dto/export-filters.dto';
@@ -29,11 +32,14 @@ describe('CertificateService', () => {
   };
   const certificateRepository = {
     update: jest.fn(),
+    save: jest.fn(),
     createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
   };
   const verificationRepository = {};
   const duplicateDetectionService = {};
-  const webhooksService = {};
+  const webhooksService = {
+    triggerEvent: jest.fn(),
+  };
   const metadataSchemaService = {};
   const filesService = {
     generateAndUploadQrCode: jest.fn(),
@@ -363,6 +369,164 @@ describe('CertificateService', () => {
         /on-chain issuance failed/i,
       );
       expect(certificateRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('certificate ownership enforcement (#1008)', () => {
+    const OWNER = 'issuer-owner';
+    const OTHER_ISSUER = 'issuer-other';
+    const ADMIN = 'admin-user';
+
+    const buildCertificate = (overrides: Partial<Certificate> = {}) =>
+      ({
+        id: 'cert-1008',
+        issuerId: OWNER,
+        status: CertificateStatus.ACTIVE,
+        metadata: {},
+        ...overrides,
+      }) as unknown as Certificate;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      certificateRepository.save.mockImplementation(async (cert: any) => cert);
+      webhooksService.triggerEvent.mockResolvedValue(undefined);
+    });
+
+    it('rejects an update from a different issuer', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(buildCertificate());
+
+      await expect(
+        service.updateWithUser(
+          'cert-1008',
+          {} as any,
+          OTHER_ISSUER,
+          UserRole.ISSUER,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(certificateRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('allows the owning issuer to update their certificate', async () => {
+      const certificate = buildCertificate();
+      jest.spyOn(service, 'findOne').mockResolvedValue(certificate);
+
+      await service.updateWithUser(
+        'cert-1008',
+        { title: 'Updated title' } as any,
+        OWNER,
+        UserRole.ISSUER,
+      );
+
+      expect(certificateRepository.save).toHaveBeenCalledWith(certificate);
+    });
+
+    it('rejects a revoke from a different issuer', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(buildCertificate());
+
+      await expect(
+        service.revokeWithUser(
+          'cert-1008',
+          { reason: 'not the owner' } as any,
+          OTHER_ISSUER,
+          '127.0.0.1',
+          'jest',
+          UserRole.ISSUER,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(certificateRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a freeze from a different issuer', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(buildCertificate());
+
+      await expect(
+        service.freeze(
+          'cert-1008',
+          'compliance hold',
+          undefined,
+          OTHER_ISSUER,
+          UserRole.ISSUER,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(certificateRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unfreeze from a different issuer', async () => {
+      jest
+        .spyOn(service, 'findOne')
+        .mockResolvedValue(
+          buildCertificate({ status: CertificateStatus.FROZEN }),
+        );
+
+      await expect(
+        service.unfreeze('cert-1008', 'release', OTHER_ISSUER, UserRole.ISSUER),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(certificateRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a caller without an issuer identity', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(buildCertificate());
+
+      await expect(
+        service.freeze('cert-1008', 'hold', undefined, undefined, undefined),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(certificateRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('lets the owning issuer freeze and emits CERTIFICATE_FROZEN', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(buildCertificate());
+
+      const saved = await service.freeze(
+        'cert-1008',
+        'compliance hold',
+        undefined,
+        OWNER,
+        UserRole.ISSUER,
+      );
+
+      expect(saved.status).toBe(CertificateStatus.FROZEN);
+      expect(webhooksService.triggerEvent).toHaveBeenCalledWith(
+        WebhookEvent.CERTIFICATE_FROZEN,
+        OWNER,
+        expect.objectContaining({ id: 'cert-1008' }),
+      );
+    });
+
+    it('lets an admin freeze another issuer certificate', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(buildCertificate());
+
+      const saved = await service.freeze(
+        'cert-1008',
+        'admin hold',
+        7,
+        ADMIN,
+        UserRole.ADMIN,
+      );
+
+      expect(saved.status).toBe(CertificateStatus.FROZEN);
+      expect(saved.metadata.freezeDurationDays).toBe(7);
+    });
+
+    it('lets the owning issuer unfreeze and emits CERTIFICATE_UNFROZEN', async () => {
+      jest
+        .spyOn(service, 'findOne')
+        .mockResolvedValue(
+          buildCertificate({ status: CertificateStatus.FROZEN }),
+        );
+
+      const saved = await service.unfreeze(
+        'cert-1008',
+        'issue resolved',
+        OWNER,
+        UserRole.ISSUER,
+      );
+
+      expect(saved.status).toBe(CertificateStatus.ACTIVE);
+      expect(webhooksService.triggerEvent).toHaveBeenCalledWith(
+        WebhookEvent.CERTIFICATE_UNFROZEN,
+        OWNER,
+        expect.objectContaining({ id: 'cert-1008' }),
+      );
     });
   });
 });

@@ -19,6 +19,10 @@ describe('CertificateController', () => {
     exportCertificates: jest.fn(),
     bulkExport: jest.fn(),
     exportAllFiltered: jest.fn(),
+    updateWithUser: jest.fn(),
+    revokeWithUser: jest.fn(),
+    freeze: jest.fn(),
+    unfreeze: jest.fn(),
   };
   const statsService = {
     getPublicSummary: jest.fn(),
@@ -353,6 +357,84 @@ describe('CertificateController', () => {
         { issuerId: 'target-issuer-id' },
         'target-issuer-id',
         UserRole.ADMIN,
+      );
+    });
+  });
+
+  describe('mutation ownership plumbing (#1008)', () => {
+    const CERT_ID = 'a3d8a582-bd23-4a2d-9630-6d4a2f5fd6f0';
+    const user = {
+      id: 'issuer-owner',
+      email: 'owner@example.com',
+      role: UserRole.ISSUER,
+    };
+
+    beforeEach(() => {
+      certificateService.updateWithUser.mockResolvedValue({});
+      certificateService.revokeWithUser.mockResolvedValue({});
+      certificateService.freeze.mockResolvedValue({});
+      certificateService.unfreeze.mockResolvedValue({});
+    });
+
+    it('forwards the issuer identity and role when updating', async () => {
+      await controller.update(CERT_ID, { title: 'New' } as any, user as any);
+
+      expect(certificateService.updateWithUser).toHaveBeenCalledWith(
+        CERT_ID,
+        { title: 'New' },
+        user.id,
+        user.role,
+      );
+    });
+
+    it('forwards the issuer identity and role when revoking', async () => {
+      const req = { ip: '127.0.0.1', headers: {} };
+
+      await controller.revoke(
+        CERT_ID,
+        { reason: 'policy violation' } as any,
+        user as any,
+        req as any,
+      );
+
+      expect(certificateService.revokeWithUser).toHaveBeenCalledWith(
+        CERT_ID,
+        { reason: 'policy violation' },
+        user.id,
+        '127.0.0.1',
+        'unknown',
+        user.role,
+      );
+    });
+
+    it('forwards the freeze DTO and issuer identity to the service', async () => {
+      await controller.freeze(
+        CERT_ID,
+        { reason: 'compliance hold', durationDays: 3 } as any,
+        user as any,
+      );
+
+      expect(certificateService.freeze).toHaveBeenCalledWith(
+        CERT_ID,
+        'compliance hold',
+        3,
+        user.id,
+        user.role,
+      );
+    });
+
+    it('forwards the unfreeze DTO and issuer identity to the service', async () => {
+      await controller.unfreeze(
+        CERT_ID,
+        { reason: 'issue resolved' } as any,
+        user as any,
+      );
+
+      expect(certificateService.unfreeze).toHaveBeenCalledWith(
+        CERT_ID,
+        'issue resolved',
+        user.id,
+        user.role,
       );
     });
   });
