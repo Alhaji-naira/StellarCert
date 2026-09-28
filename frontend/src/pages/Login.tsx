@@ -11,11 +11,13 @@ const Login = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = getSafeRedirectPath(searchParams.get("returnUrl"));
+  const messageParam = searchParams.get("message");
   const { login } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(messageParam);
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
@@ -51,11 +53,15 @@ const Login = () => {
           email: formData.email,
           password: formData.password,
         });
-
+        
+        // Check if email verification is required
         if (regRes.requiresEmailVerification) {
+          // Store the access token (as mentioned in endpoints.ts comment)
+          // but don't call login() - show verification pending screen instead
           setRegisteredEmail(formData.email);
           setShowVerificationPending(true);
         } else {
+          // Email already verified or verification not required, log in normally
           login(regRes.accessToken, regRes.user);
           navigate(returnUrl, { replace: true });
         }
@@ -81,6 +87,7 @@ const Login = () => {
     return isLogin ? <><LogIn className="w-4 h-4" />Sign In</> : <><UserPlus className="w-4 h-4" />Create Account</>;
   };
 
+  // Render verification pending screen
   if (showVerificationPending) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-900">
@@ -138,6 +145,7 @@ const Login = () => {
           {isLogin ? "Welcome Back" : "Create Account"}
         </h1>
         {error && <p className="text-red-600 dark:text-red-400 text-center mb-4">{error}</p>}
+        {successMessage && <p className="text-green-600 dark:text-green-400 text-center mb-4">{successMessage}</p>}
         <form onSubmit={handleSubmit} className="space-y-6">
           {!isLogin && (
             <div className="grid grid-cols-2 gap-4">
@@ -228,7 +236,7 @@ const Login = () => {
           </div>
         )}
         <div className="mt-6 text-center">
-          <button onClick={() => { setIsLogin(!isLogin); setError(null); }}
+          <button onClick={() => { setIsLogin(!isLogin); setError(null); setSuccessMessage(null); }}
             className="text-blue-600 dark:text-blue-400 hover:underline">
             {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
           </button>
