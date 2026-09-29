@@ -103,6 +103,8 @@ export class EmailService {
       'verification-email',
       'password-reset',
       'revocation-notice',
+      'transfer-confirmation',
+      'transfer-completed',
     ];
 
     templates.forEach((templateName) => {
@@ -226,6 +228,49 @@ export class EmailService {
             day: 'numeric',
           },
         ),
+      },
+    };
+
+    await this.sendEmail(emailDto);
+  }
+
+  async sendTransferConfirmationCode(dto: {
+    to: string;
+    recipientName?: string;
+    certificateTitle: string;
+    certificateId: string;
+    confirmationCode: string;
+  }): Promise<void> {
+    const emailDto: SendEmailDto = {
+      to: dto.to,
+      subject: `Certificate Transfer Confirmation: ${dto.certificateTitle}`,
+      template: 'transfer-confirmation',
+      data: {
+        recipientName: dto.recipientName || 'User',
+        certificateTitle: dto.certificateTitle,
+        certificateId: dto.certificateId,
+        confirmationCode: dto.confirmationCode,
+      },
+    };
+
+    await this.sendEmail(emailDto);
+  }
+
+  async sendTransferCompletedNotice(dto: {
+    to: string;
+    recipientName?: string;
+    certificateTitle: string;
+    certificateId: string;
+  }): Promise<void> {
+    const emailDto: SendEmailDto = {
+      to: dto.to,
+      subject: `Certificate Transfer Completed: ${dto.certificateTitle}`,
+      template: 'transfer-completed',
+      data: {
+        recipientName: dto.recipientName || 'User',
+        certificateTitle: dto.certificateTitle,
+        certificateId: dto.certificateId,
+        certificateLink: `${this.getBaseUrl()}/certificates/${dto.certificateId}`,
       },
     };
 

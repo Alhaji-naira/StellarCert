@@ -27,6 +27,7 @@ describe('Header mobile navigation', () => {
       isLoading: false,
       clearAuth: vi.fn(),
       login: vi.fn(),
+      logout: vi.fn(),
     } as never);
   });
 
@@ -60,6 +61,7 @@ describe('Header wallet link visibility', () => {
       isLoading: false,
       clearAuth: vi.fn(),
       login: vi.fn(),
+      logout: vi.fn(),
     } as never);
 
     return render(
@@ -126,5 +128,82 @@ describe('Header wallet link visibility', () => {
 
     expect(screen.queryAllByRole('link', { name: 'Dashboard' }).length).toBeGreaterThan(0);
     expect(screen.queryAllByRole('link', { name: 'Verify' }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('Header authentication controls (#997)', () => {
+  const renderAs = (role: UserRole | null) => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: role ? ({ id: 'u1', email: 'u@example.com', role } as never) : null,
+      setUser: vi.fn(),
+      isAuthenticated: Boolean(role),
+      isLoading: false,
+      clearAuth: vi.fn(),
+      login: vi.fn(),
+      logout: vi.fn(),
+    } as never);
+
+    return render(
+      <MemoryRouter>
+        <Header />
+      </MemoryRouter>,
+    );
+  };
+
+  it('shows "Sign in" link for logged-out users in desktop nav', () => {
+    renderAs(null);
+
+    const signInLink = screen.getByRole('link', { name: /sign in/i });
+    expect(signInLink).toHaveAttribute('href', '/login');
+  });
+
+  it('shows "Sign in" link for logged-out users in mobile nav', () => {
+    renderAs(null);
+
+    // Open mobile drawer
+    fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+
+    const signInLink = screen.getByRole('link', { name: /sign in/i });
+    expect(signInLink).toHaveAttribute('href', '/login');
+  });
+
+  it('shows "Sign out" button for logged-in users in desktop nav', () => {
+    renderAs(UserRole.USER);
+
+    const signOutButton = screen.getByRole('button', { name: /sign out/i });
+    expect(signOutButton).toBeInTheDocument();
+  });
+
+  it('shows "Sign out" button for logged-in users in mobile nav', () => {
+    renderAs(UserRole.USER);
+
+    // Open mobile drawer
+    fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+
+    const signOutButton = screen.getByRole('button', { name: /sign out/i });
+    expect(signOutButton).toBeInTheDocument();
+  });
+
+  it('calls logout and navigates on Sign out click', async () => {
+    const logoutMock = vi.fn();
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 'u1', email: 'u@example.com', role: UserRole.USER } as never,
+      setUser: vi.fn(),
+      isAuthenticated: true,
+      isLoading: false,
+      clearAuth: vi.fn(),
+      login: vi.fn(),
+      logout: logoutMock,
+    } as never);
+
+    render(
+      <MemoryRouter>
+        <Header />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /sign out/i }));
+
+    expect(logoutMock).toHaveBeenCalled();
   });
 });
