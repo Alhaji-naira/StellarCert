@@ -36,14 +36,13 @@ export class AuthV2Controller {
   async login(
     @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
+  ): Promise<AuthResponseDto & { metadata: any }> {
     const result = await this.authService.login(loginDto);
     if (!('requires2FA' in result) && result.refreshToken) {
       res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions());
     }
-    const { refreshToken: _, ...response } = result;
     return {
-      ...response,
+      ...result,
       metadata: {
         version: '2',
         timestamp: new Date().toISOString(),
@@ -60,14 +59,13 @@ export class AuthV2Controller {
   async register(
     @Body() registerDto: RegisterDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
+  ): Promise<AuthResponseDto & { metadata: any }> {
     const result = await this.authService.register(registerDto);
     if (result.refreshToken) {
       res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions());
     }
-    const { refreshToken: _, ...response } = result;
     return {
-      ...response,
+      ...result,
       metadata: {
         version: '2',
         timestamp: new Date().toISOString(),
