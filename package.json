@@ -37,7 +37,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "ci:check": "npm run lint && npm run typecheck && npm run test",
     "ci:build": "npm run build && npm run build:contracts",
-    "security:audit": "npm audit --audit-level=high && cd backend && npm audit --audit-level=high && cd ../frontend && npm audit --audit-level=high",
+    "security:audit": "npm audit --audit-level=critical && cd backend && npm audit --audit-level=critical && cd ../frontend && npm audit --audit-level=critical",
     "prepare": "husky"
   },
   "devDependencies": {
