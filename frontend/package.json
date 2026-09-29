@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "typecheck": "tsc -b",
     "check:import-case": "node scripts/check-import-case.mjs",
