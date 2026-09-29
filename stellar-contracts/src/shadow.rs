@@ -1,16 +1,14 @@
-use soroban_sdk::{contracttype, Address, Env, IntoVal, String, Val, Vec};
-
-use crate::persistent::extend_ttl;
+use soroban_sdk::{contracterror, contracttype, vec, Address, Env, String, Vec};
 
 /// Metadata field types supported by the schema
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MetadataFieldType {
-    String = 0,
-    Number = 1,
-    Boolean = 2,
-    Date = 3,
-    Json = 4,
+    String,
+    Number,
+    Boolean,
+    Date,
+    Json,
 }
 
 impl MetadataFieldType {
@@ -108,6 +106,7 @@ pub struct MetadataValidationResult {
 }
 
 /// Metadata-related errors
+#[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum MetadataError {
@@ -119,70 +118,53 @@ pub enum MetadataError {
     Unauthorized = 5,
 }
 
-/// Storage keys for metadata schemas.
+/// Storage keys for metadata.
 ///
-/// Each variant is its own ledger entry. Only `SchemaCount` has a bounded size;
-/// a schema record, the name index and the per-name history all grow with the
-/// number of schemas (and with the size of each schema), so they live in
-/// `persistent()` storage, one entry per key, instead of sharing `instance()`.
-///
-/// `instance()` storage is a **single** ledger entry with a fixed maximum size
-/// (currently ~16 KB), so keeping the schemas there meant that once the
-/// cumulative size of all schemas, name indexes and history lists crossed that
-/// cap, every later `register_schema` / `upgrade_schema` write would fail for
-/// good — the contract could never accept another schema. Because `instance()`
-/// is also the entry holding the contract's own instance data, hitting the cap
-/// risks the instance entry itself.
-///
-/// The name index and the history are deliberately **separate** variants: they
-/// previously shared one key (a raw schema-name `String`), so registering a
-/// schema wrote the id to the name key and then immediately overwrote it with
-/// the history list, leaving the name index unreadable and the history
-/// unreadable in the same write.
+/// Each logical collection has its own namespaced variant so that a schema
+/// record, the name index, the history list and the counter can never collide
+/// in the same ledger entry.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MetadataKey {
-    /// Schema id -> its `MetadataSchemaRecord`.
+    /// A schema record, keyed by schema ID.
     Schema(String),
-    /// Schema name -> id of the latest version registered under that name.
+    /// Maps a schema name to its latest schema ID.
     SchemaNameIndex(String),
-    /// Schema name -> every version registered under that name, oldest first.
+    /// Maps a schema name to the ordered list of its schema IDs.
     SchemaHistory(String),
     /// Total number of registered schemas.
     SchemaCount,
 }
 
-/// Write a value to persistent storage and top up its TTL, so a schema that is
-/// written once does not silently expire while the contract is still serving it.
-fn set_persistent<K, V>(env: &Env, key: &K, value: &V)
-where
-    K: IntoVal<Env, Val>,
-    V: IntoVal<Env, Val>,
-{
-    env.storage().persistent().set(key, value);
-    extend_ttl(env, key, None);
-}
-
-/// Register a new metadata schema
+/// Register a new metadata schema.
+///
+/// Schemas are written to `persistent()` storage keyed by schema ID. Instance
+/// storage is a single ledger entry capped at ~16 KB, so keeping schemas there
+/// would exhaust it and cause all later writes to fail (#759). Persistent
+/// entries are independent and can be TTL-managed per schema.
 pub fn register_schema(env: &Env, schema: MetadataSchemaRecord) -> Result<(), MetadataError> {
-    // Check if schema already exists
     let schema_key = MetadataKey::Schema(schema.id.clone());
     if env.storage().persistent().has(&schema_key) {
         return Err(MetadataError::SchemaAlreadyExists);
     }
 
-    // Store the schema in its own persistent entry, keyed by schema id.
-    set_persistent(env, &schema_key, &schema);
+    // Store the schema itself, keyed by its unique ID.
+    env.storage().persistent().set(&schema_key, &schema);
+    crate::persistent::extend_ttl(env, &schema_key, None);
 
-    // Point the name index at this schema: it is the latest version of that name.
-    set_persistent(
-        env,
-        &MetadataKey::SchemaNameIndex(schema.name.clone()),
-        &schema.id,
-    );
+    // Point the name index at the latest schema ID for this name.
+    let index_key = MetadataKey::SchemaNameIndex(schema.name.clone());
+    env.storage().persistent().set(&index_key, &schema.id);
+    crate::persistent::extend_ttl(env, &index_key, None);
 
-    // Append to the per-name history. This used to write to the same key as the
-    // name index, which destroyed the index on every registration.
+    // Update the global schema count.
+    let count_key = MetadataKey::SchemaCount;
+    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+    env.storage().persistent().set(&count_key, &(count + 1));
+    crate::persistent::extend_ttl(env, &count_key, None);
+
+    // Append the schema ID to this name's history list. This uses a dedicated
+    // key so it no longer shares an entry with the name index above.
     let history_key = MetadataKey::SchemaHistory(schema.name.clone());
     let mut history: Vec<String> = env
         .storage()
@@ -190,12 +172,8 @@ pub fn register_schema(env: &Env, schema: MetadataSchemaRecord) -> Result<(), Me
         .get(&history_key)
         .unwrap_or_else(|| Vec::new(env));
     history.push_back(schema.id.clone());
-    set_persistent(env, &history_key, &history);
-
-    // Update schema count
-    let count_key = MetadataKey::SchemaCount;
-    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
-    set_persistent(env, &count_key, &(count + 1));
+    env.storage().persistent().set(&history_key, &history);
+    crate::persistent::extend_ttl(env, &history_key, None);
 
     Ok(())
 }
@@ -223,13 +201,6 @@ pub fn get_schema_history(env: &Env, name: &String) -> Vec<String> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Get the id of the latest schema registered under `name`
-pub fn get_latest_schema_id(env: &Env, name: &String) -> Option<String> {
-    env.storage()
-        .persistent()
-        .get(&MetadataKey::SchemaNameIndex(name.clone()))
-}
-
 /// Validate metadata against a schema
 pub fn validate_metadata(
     env: &Env,
@@ -240,30 +211,32 @@ pub fn validate_metadata(
     let schema = match get_schema(env, schema_id) {
         Some(s) => s,
         None => {
-            let mut errors: Vec<MetadataValidationError> = Vec::new(env);
-            errors.push_back(MetadataValidationError {
-                field: String::from_str(env, "schema"),
-                constraint: String::from_str(env, "exists"),
-                message: String::from_str(env, "Schema not found"),
-            });
             return MetadataValidationResult {
                 valid: false,
-                errors,
+                errors: vec![
+                    &env,
+                    MetadataValidationError {
+                        field: String::from_str(env, "schema"),
+                        constraint: String::from_str(env, "exists"),
+                        message: String::from_str(env, "Schema not found"),
+                    },
+                ],
             };
         }
     };
 
     // Check if schema is active
     if !schema.is_active {
-        let mut errors: Vec<MetadataValidationError> = Vec::new(env);
-        errors.push_back(MetadataValidationError {
-            field: String::from_str(env, "schema"),
-            constraint: String::from_str(env, "active"),
-            message: String::from_str(env, "Schema is inactive"),
-        });
         return MetadataValidationResult {
             valid: false,
-            errors,
+            errors: vec![
+                &env,
+                MetadataValidationError {
+                    field: String::from_str(env, "schema"),
+                    constraint: String::from_str(env, "active"),
+                    message: String::from_str(env, "Schema is inactive"),
+                },
+            ],
         };
     }
 
@@ -349,13 +322,15 @@ pub fn upgrade_schema(
         return Err(MetadataError::InvalidVersion);
     }
 
-    // Deactivate old schema (persistent, like every other schema write)
+    // Deactivate the previous version in persistent storage.
     let mut deactivated = old_schema;
     deactivated.is_active = false;
-    set_persistent(env, &MetadataKey::Schema(old_id.clone()), &deactivated);
+    let old_key = MetadataKey::Schema(old_id.clone());
+    env.storage().persistent().set(&old_key, &deactivated);
+    crate::persistent::extend_ttl(env, &old_key, None);
 
     // Register new schema with link to old version
-    let mut upgraded = new_schema;
+    let mut upgraded = new_schema.clone();
     upgraded.previous_version_id = Some(old_id.clone());
 
     // Register the new schema

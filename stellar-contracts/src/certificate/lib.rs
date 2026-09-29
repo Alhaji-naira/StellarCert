@@ -43,6 +43,7 @@ impl CertificateContract {
         env.storage().persistent().set(&original_id, &original_cert);
 
         // 2. Emit an explicit revocation event for the original certificate
+        #[allow(deprecated)]
         env.events().publish(
             (Symbol::new(&env, "CertificateRevokedEvent"), original_id.clone()),
             String::from_str(&env, "Superseded")
@@ -81,3 +82,4 @@ impl CertificateContract {
             .unwrap_or_else(|| panic!("Multisig configuration not initialized"))
     }
 }
+
