@@ -40,15 +40,29 @@ pub use admin_multisig::{
 #[cfg(test)]
 mod admin_multisig_test;
 #[cfg(test)]
+mod comprehensive_tests;
+#[cfg(test)]
 mod crl_test;
 #[cfg(test)]
 mod events_test;
 #[cfg(test)]
+mod issuer_management_test;
+#[cfg(test)]
 mod issuer_test;
+// metadata_test is deliberately NOT wired in: it exercises `mod metadata`,
+// which is itself commented out above and does not currently compile (32
+// errors). Wiring the test would mean first repairing that module, which is
+// a separate piece of work. See #1023.
+// #[cfg(test)]
+// mod metadata_test;
 #[cfg(test)]
 mod multisig_test;
 #[cfg(test)]
 mod revoke_sync_test;
+#[cfg(test)]
+mod status_test;
+#[cfg(test)]
+mod test;
 #[cfg(test)]
 mod transfer_security_test;
 
