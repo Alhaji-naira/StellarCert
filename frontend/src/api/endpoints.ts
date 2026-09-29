@@ -71,6 +71,14 @@ const handleError = (error: unknown, endpointName: string): never => {
  */
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
+// Base path constants for authentication
+export const AUTH_ENDPOINTS = {
+  LOGIN: "/users/login",
+  REGISTER: "/users/register",
+  REFRESH: "/users/refresh-token",
+  LOGOUT: "/users/logout",
+} as const;
+
 /**
  * Refresh tokens using the HttpOnly cookie sent automatically by the browser.
  *
@@ -94,7 +102,7 @@ const refreshTokens = async (): Promise<AuthResponse> => {
   }
   if (_refreshInFlight) return _refreshInFlight;
 
-  _refreshInFlight = apiClient<AuthResponse>('/users/refresh-token', {
+  _refreshInFlight = apiClient<AuthResponse>(AUTH_ENDPOINTS.REFRESH, {
     method: 'POST',
     skipAuth: true,
   })
@@ -920,7 +928,7 @@ export const loginApi = async (
   }
 
   try {
-    const response = await apiClient<AuthResponse>("/auth/login", {
+    const response = await apiClient<AuthResponse>(AUTH_ENDPOINTS.LOGIN, {
       method: "POST",
       body: JSON.stringify({ email: credentials.email, password: credentials.password }),
       skipAuth: true,
@@ -957,7 +965,7 @@ export const registerApi = async (
   }
 
   try {
-    const response = await apiClient<AuthResponse>("/auth/register", {
+    const response = await apiClient<AuthResponse>(AUTH_ENDPOINTS.REGISTER, {
       method: "POST",
       body: JSON.stringify({
         email: data.email,
@@ -988,7 +996,7 @@ export const authApi = {
     try {
       if (!(import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
         const accessToken = tokenStorage.getAccessToken();
-        await apiClient("/auth/logout", {
+        await apiClient(AUTH_ENDPOINTS.LOGOUT, {
           method: "POST",
           body: JSON.stringify({ accessToken: accessToken ?? '' }),
         });
@@ -1120,7 +1128,11 @@ export const totalActiveUsers = async (): Promise<TotalActiveUsersStats> => {
     await simulateDelay();
     return { total: dummyData.users.length };
   }
-  return apiClient<TotalActiveUsersStats>("/users/stats/active");
+  const stats = await apiClient<{
+    total?: number;
+    active?: number;
+  }>("/users/stats");
+  return { total: stats.active ?? stats.total ?? 0 };
 };
 
 export const analyticsApi = {
