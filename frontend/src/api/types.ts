@@ -411,3 +411,21 @@ export interface PaginatedActivityLog {
     totalPages: number;
   };
 }
+
+export type NotificationType = "info" | "success" | "error";
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface NotificationPreferences {
+  inAppEnabled: boolean;
+  infoEnabled: boolean;
+  successEnabled: boolean;
+  errorEnabled: boolean;
+}
