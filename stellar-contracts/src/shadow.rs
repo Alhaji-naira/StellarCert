@@ -1,16 +1,14 @@
-#![no_std]
-
-use soroban_sdk::{Address, Env, String, Vec};
+use soroban_sdk::{contracterror, contracttype, vec, Address, Env, String, Vec};
 
 /// Metadata field types supported by the schema
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MetadataFieldType {
-    String = 0,
-    Number = 1,
-    Boolean = 2,
-    Date = 3,
-    Json = 4,
+    String,
+    Number,
+    Boolean,
+    Date,
+    Json,
 }
 
 impl MetadataFieldType {
@@ -27,7 +25,8 @@ impl MetadataFieldType {
 }
 
 /// Schema version structure for tracking schema evolution
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MetadataSchemaVersion {
     pub major: u32,
     pub minor: u32,
@@ -42,10 +41,7 @@ impl MetadataSchemaVersion {
         if self.major == other.major && self.minor > other.minor {
             return true;
         }
-        if self.major == other.major
-            && self.minor == other.minor
-            && self.patch > other.patch
-        {
+        if self.major == other.major && self.minor == other.minor && self.patch > other.patch {
             return true;
         }
         false
@@ -57,7 +53,8 @@ impl MetadataSchemaVersion {
 }
 
 /// A field rule defining constraints for a metadata field
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MetadataFieldRule {
     pub name: String,
     pub field_type: MetadataFieldType,
@@ -67,7 +64,8 @@ pub struct MetadataFieldRule {
 }
 
 /// A complete metadata schema record
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MetadataSchemaRecord {
     pub id: String,
     pub name: String,
@@ -82,7 +80,8 @@ pub struct MetadataSchemaRecord {
 }
 
 /// A single metadata entry (key-value pair)
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MetadataEntry {
     pub key: String,
     pub value: String,
@@ -90,7 +89,8 @@ pub struct MetadataEntry {
 }
 
 /// Validation error structure
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MetadataValidationError {
     pub field: String,
     pub constraint: String,
@@ -98,14 +98,16 @@ pub struct MetadataValidationError {
 }
 
 /// Result of metadata validation
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MetadataValidationResult {
     pub valid: bool,
     pub errors: Vec<MetadataValidationError>,
 }
 
 /// Metadata-related errors
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[contracterror]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum MetadataError {
     SchemaAlreadyExists = 0,
@@ -116,93 +118,77 @@ pub enum MetadataError {
     Unauthorized = 5,
 }
 
-/// Storage keys for metadata
-#[derive(Clone)]
+/// Storage keys for metadata.
+///
+/// Each logical collection has its own namespaced variant so that a schema
+/// record, the name index, the history list and the counter can never collide
+/// in the same ledger entry.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MetadataKey {
+    /// A schema record, keyed by schema ID.
     Schema(String),
-    SchemaNameIndex(String), // Maps schema name to latest schema ID
-    SchemaHistory(String),   // Maps schema name to list of schema IDs
+    /// Maps a schema name to its latest schema ID.
+    SchemaNameIndex(String),
+    /// Maps a schema name to the ordered list of its schema IDs.
+    SchemaHistory(String),
+    /// Total number of registered schemas.
     SchemaCount,
 }
 
-// Implement conversion for MetadataKey to be used as storage key
-impl MetadataKey {
-    pub fn to_key(&self) -> soroban_sdk::storage::Key {
-        match self {
-            MetadataKey::Schema(id) => {
-                soroban_sdk::storage::Key::try_from_val(&soroban_sdk::Symbol::from_str("md_sch"), id)
-                    .unwrap_or_else(|_| soroban_sdk::storage::Key::try_from_val(&0u32, id).unwrap())
-            }
-            MetadataKey::SchemaNameIndex(name) => {
-                soroban_sdk::storage::Key::try_from_val(&soroban_sdk::Symbol::from_str("md_nidx"), name)
-                    .unwrap_or_else(|_| soroban_sdk::storage::Key::try_from_val(&1u32, name).unwrap())
-            }
-            MetadataKey::SchemaHistory(name) => {
-                soroban_sdk::storage::Key::try_from_val(&soroban_sdk::Symbol::from_str("md_hist"), name)
-                    .unwrap_or_else(|_| soroban_sdk::storage::Key::try_from_val(&2u32, name).unwrap())
-            }
-            MetadataKey::SchemaCount => {
-                soroban_sdk::storage::Key::try_from_val(&soroban_sdk::Symbol::from_str("md_cnt"), &())
-                    .unwrap_or_else(|_| soroban_sdk::storage::Key::try_from_val(&3u32, &()).unwrap())
-            }
-        }
-    }
-}
-
-/// Register a new metadata schema
+/// Register a new metadata schema.
+///
+/// Schemas are written to `persistent()` storage keyed by schema ID. Instance
+/// storage is a single ledger entry capped at ~16 KB, so keeping schemas there
+/// would exhaust it and cause all later writes to fail (#759). Persistent
+/// entries are independent and can be TTL-managed per schema.
 pub fn register_schema(env: &Env, schema: MetadataSchemaRecord) -> Result<(), MetadataError> {
-    // Check if schema already exists
-    if env
-        .storage()
-        .instance()
-        .has(&schema.id)
-    {
+    let schema_key = MetadataKey::Schema(schema.id.clone());
+    if env.storage().persistent().has(&schema_key) {
         return Err(MetadataError::SchemaAlreadyExists);
     }
 
-    // Store the schema
-    env.storage()
-        .instance()
-        .set(&schema.id, &schema);
+    // Store the schema itself, keyed by its unique ID.
+    env.storage().persistent().set(&schema_key, &schema);
+    crate::persistent::extend_ttl(env, &schema_key, None);
 
-    // Update name index to point to this schema
-    env.storage()
-        .instance()
-        .set(&schema.name, &schema.id);
+    // Point the name index at the latest schema ID for this name.
+    let index_key = MetadataKey::SchemaNameIndex(schema.name.clone());
+    env.storage().persistent().set(&index_key, &schema.id);
+    crate::persistent::extend_ttl(env, &index_key, None);
 
-    // Update schema count
-    let count: u32 = env
-        .storage()
-        .instance()
-        .get(&MetadataKey::SchemaCount)
-        .unwrap_or(0);
-    env.storage()
-        .instance()
-        .set(&MetadataKey::SchemaCount, &(count + 1));
+    // Update the global schema count.
+    let count_key = MetadataKey::SchemaCount;
+    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+    env.storage().persistent().set(&count_key, &(count + 1));
+    crate::persistent::extend_ttl(env, &count_key, None);
 
-    // Initialize schema history if needed
+    // Append the schema ID to this name's history list. This uses a dedicated
+    // key so it no longer shares an entry with the name index above.
+    let history_key = MetadataKey::SchemaHistory(schema.name.clone());
     let mut history: Vec<String> = env
         .storage()
-        .instance()
-        .get(&schema.name)
+        .persistent()
+        .get(&history_key)
         .unwrap_or_else(|| Vec::new(env));
     history.push_back(schema.id.clone());
-    env.storage()
-        .instance()
-        .set(&schema.name, &history);
+    env.storage().persistent().set(&history_key, &history);
+    crate::persistent::extend_ttl(env, &history_key, None);
 
     Ok(())
 }
 
 /// Get a schema by ID
 pub fn get_schema(env: &Env, id: &String) -> Option<MetadataSchemaRecord> {
-    env.storage().instance().get(id)
+    env.storage()
+        .persistent()
+        .get(&MetadataKey::Schema(id.clone()))
 }
 
 /// Get the total number of schemas
 pub fn get_schema_count(env: &Env) -> u32 {
     env.storage()
-        .instance()
+        .persistent()
         .get(&MetadataKey::SchemaCount)
         .unwrap_or(0)
 }
@@ -210,8 +196,8 @@ pub fn get_schema_count(env: &Env) -> u32 {
 /// Get schema history by name
 pub fn get_schema_history(env: &Env, name: &String) -> Vec<String> {
     env.storage()
-        .instance()
-        .get(name)
+        .persistent()
+        .get(&MetadataKey::SchemaHistory(name.clone()))
         .unwrap_or_else(|| Vec::new(env))
 }
 
@@ -227,11 +213,14 @@ pub fn validate_metadata(
         None => {
             return MetadataValidationResult {
                 valid: false,
-                errors: vec![MetadataValidationError {
-                    field: String::from_str(env, "schema"),
-                    constraint: String::from_str(env, "exists"),
-                    message: String::from_str(env, "Schema not found"),
-                }],
+                errors: vec![
+                    &env,
+                    MetadataValidationError {
+                        field: String::from_str(env, "schema"),
+                        constraint: String::from_str(env, "exists"),
+                        message: String::from_str(env, "Schema not found"),
+                    },
+                ],
             };
         }
     };
@@ -240,11 +229,14 @@ pub fn validate_metadata(
     if !schema.is_active {
         return MetadataValidationResult {
             valid: false,
-            errors: vec![MetadataValidationError {
-                field: String::from_str(env, "schema"),
-                constraint: String::from_str(env, "active"),
-                message: String::from_str(env, "Schema is inactive"),
-            }],
+            errors: vec![
+                &env,
+                MetadataValidationError {
+                    field: String::from_str(env, "schema"),
+                    constraint: String::from_str(env, "active"),
+                    message: String::from_str(env, "Schema is inactive"),
+                },
+            ],
         };
     }
 
@@ -254,7 +246,7 @@ pub fn validate_metadata(
     for required_field in schema.required_fields.iter() {
         let found = entries.iter().any(|e| e.key == required_field);
         if !found {
-            errors.push(MetadataValidationError {
+            errors.push_back(MetadataValidationError {
                 field: required_field.clone(),
                 constraint: String::from_str(env, "required"),
                 message: String::from_str(env, "Required field is missing"),
@@ -270,7 +262,7 @@ pub fn validate_metadata(
         if let Some(rule) = field_rule {
             // Check type match
             if rule.field_type != entry.value_type {
-                errors.push(MetadataValidationError {
+                errors.push_back(MetadataValidationError {
                     field: entry.key.clone(),
                     constraint: String::from_str(env, "type"),
                     message: String::from_str(env, "Field type mismatch"),
@@ -280,15 +272,15 @@ pub fn validate_metadata(
             // Check string length constraints for String type
             if entry.value_type == MetadataFieldType::String {
                 let len = entry.value.len();
-                if len < rule.min_length as u32 {
-                    errors.push(MetadataValidationError {
+                if len < rule.min_length {
+                    errors.push_back(MetadataValidationError {
                         field: entry.key.clone(),
                         constraint: String::from_str(env, "minLength"),
                         message: String::from_str(env, "Value too short"),
                     });
                 }
-                if len > rule.max_length as u32 {
-                    errors.push(MetadataValidationError {
+                if len > rule.max_length {
+                    errors.push_back(MetadataValidationError {
                         field: entry.key.clone(),
                         constraint: String::from_str(env, "maxLength"),
                         message: String::from_str(env, "Value too long"),
@@ -298,7 +290,7 @@ pub fn validate_metadata(
         } else {
             // No matching field rule found
             if !schema.allow_custom_fields {
-                errors.push(MetadataValidationError {
+                errors.push_back(MetadataValidationError {
                     field: entry.key.clone(),
                     constraint: String::from_str(env, "noCustomFields"),
                     message: String::from_str(env, "Custom fields not allowed"),
@@ -330,12 +322,12 @@ pub fn upgrade_schema(
         return Err(MetadataError::InvalidVersion);
     }
 
-    // Deactivate old schema
+    // Deactivate the previous version in persistent storage.
     let mut deactivated = old_schema;
     deactivated.is_active = false;
-    env.storage()
-        .instance()
-        .set(old_id, &deactivated);
+    let old_key = MetadataKey::Schema(old_id.clone());
+    env.storage().persistent().set(&old_key, &deactivated);
+    crate::persistent::extend_ttl(env, &old_key, None);
 
     // Register new schema with link to old version
     let mut upgraded = new_schema.clone();
