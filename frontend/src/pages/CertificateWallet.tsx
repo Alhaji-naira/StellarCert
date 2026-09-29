@@ -14,11 +14,11 @@ import {
 } from "lucide-react";
 import {
   Certificate,
-  getUserCertificates,
   certificateApi,
   getCertificatePdfUrl,
 } from "../api";
 import { UserRole, User } from "../api/types";
+import { useUserCertificatesQuery } from "../api/queries";
 import { useAuth } from "../context/AuthContext";
 
 
@@ -41,46 +41,38 @@ const DOWNLOAD_ROLES: readonly UserRole[] = [UserRole.ISSUER, UserRole.ADMIN];
 
 const CertificateWallet = () => {
   const { user } = useAuth();
-  const [certificates, setCertificates] = useState<Certificate[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Shared with the recipient dashboard: the certificates are fetched once and
+  // both routes read the same cache entry.
+  const {
+    data: certificates = [],
+    isPending: loading,
+    isError: certificatesFailed,
+  } = useUserCertificatesQuery(user?.id);
 
   // QR states
   const [qrCodes, setQrCodes] = useState<Record<string, string>>({});
   const [selectedQR, setSelectedQR] = useState<string | null>(null);
   const [loadingQR, setLoadingQR] = useState<Record<string, boolean>>({});
 
-  const [error, setError] = useState<string | null>(null);
+  // Only the list request feeds the banner; the QR/PDF actions keep their own
+  // message so a failed download never masquerades as a failed page load. The
+  // raw transport message is not surfaced -- it is unhelpful to a user and was
+  // never shown before the migration.
+  const loadError = certificatesFailed
+    ? "Failed to load your certificates. Please check your connection and try again."
+    : null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? loadError;
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(9);
 
+  // A newly signed-in user has a different wallet; never page into a stale index.
   useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    const fetchCertificates = async () => {
-      setError(null);
-      try {
-        const data = await getUserCertificates(user.id);
-        if (data) {
-          setCertificates(data);
-          setPage(1);
-        }
-      } catch (err) {
-        console.error("Error fetching certificates:", err);
-        setError(
-          "Failed to load your certificates. Please check your connection and try again.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCertificates();
-  }, [user]);
+    setPage(1);
+  }, [user?.id]);
 
   // QR CODE LOGIC
   const fetchQRCode = async (certificateId: string) => {
@@ -138,7 +130,7 @@ const CertificateWallet = () => {
     cert: Certificate,
     action: "view" | "download",
   ) => {
-    setError(null);
+    setActionError(null);
     setActionLoadingId(cert.id);
 
     try {
@@ -192,7 +184,7 @@ const CertificateWallet = () => {
           "Certificate is still being processed. PDF will be available soon.";
       }
 
-      setError(
+      setActionError(
         `Failed to ${action} certificate "${cert.title}". ${userFriendlyMessage}`,
       );
     } finally {

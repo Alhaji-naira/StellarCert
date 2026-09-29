@@ -1,12 +1,15 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import CertificateTable from './CertificateTable';
-import { certificateApi, auditApi } from '../api';
+import { certificateApi, auditApi } from '../api/endpoints';
 import type { Certificate } from '../api';
+import { createTestQueryClient, renderWithProviders } from '../test/renderWithProviders';
 
-vi.mock('../api', () => ({
+// Mocked at the endpoints module because the table's data now flows through the
+// query layer, which imports its fetchers from there.
+vi.mock('../api/endpoints', () => ({
   certificateApi: {
     list: vi.fn(),
     bulkExport: vi.fn(),
@@ -47,7 +50,9 @@ const listResolvesWith = (certificates: Certificate[]) => {
 
 const renderTable = async (certificates: Certificate[] = [certificate()]) => {
   listResolvesWith(certificates);
-  render(<CertificateTable />);
+  renderWithProviders(<CertificateTable />, {
+    queryClient: createTestQueryClient(),
+  });
   await waitFor(() => expect(certificateApi.list).toHaveBeenCalled());
 };
 
@@ -225,7 +230,7 @@ describe('CertificateTable failure feedback', () => {
     const onError = vi.fn();
     const onSuccess = vi.fn();
     listResolvesWith(certificates);
-    render(<CertificateTable onError={onError} onSuccess={onSuccess} />);
+    renderWithProviders(<CertificateTable onError={onError} onSuccess={onSuccess} />);
     await screen.findByText(certificates[0].recipientName);
     return { onError, onSuccess };
   };
@@ -237,7 +242,7 @@ describe('CertificateTable failure feedback', () => {
   it('shows a failed load as a failure with a retry, not as an empty list', async () => {
     const onError = vi.fn();
     vi.mocked(certificateApi.list).mockRejectedValueOnce(new Error('network down'));
-    render(<CertificateTable onError={onError} />);
+    renderWithProviders(<CertificateTable onError={onError} />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/failed to fetch certificates/i);
     expect(screen.queryByText(/no certificates found/i)).not.toBeInTheDocument();
@@ -252,7 +257,7 @@ describe('CertificateTable failure feedback', () => {
 
   it('still reports an empty result set when the load succeeded', async () => {
     listResolvesWith([]);
-    render(<CertificateTable />);
+    renderWithProviders(<CertificateTable />);
 
     expect(await screen.findByText(/no certificates found/i)).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
