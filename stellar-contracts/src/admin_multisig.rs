@@ -226,7 +226,6 @@ impl AdminMultisigContract {
         let approval_count = proposal.approvals.len();
 
         #[allow(deprecated)]
-
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("approved")),
             ProposalApprovedEvent {
@@ -282,7 +281,6 @@ impl AdminMultisigContract {
         Self::set_persistent(&env, &proposal_key, &proposal);
 
         #[allow(deprecated)]
-
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("canceled")),
             ProposalCanceledEvent {

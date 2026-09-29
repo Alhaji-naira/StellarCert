@@ -3,7 +3,9 @@
 extern crate std;
 
 use super::crl::*;
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, testutils::Events as _, Address, Env, String};
+use soroban_sdk::{
+    contract, contractimpl, testutils::Address as _, testutils::Events as _, Address, Env, String,
+};
 use std::string::ToString;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -540,12 +542,8 @@ fn test_rejected_revocation_emits_no_event() {
     let cert_id = String::from_str(&env, "CERT-001");
     client.revoke_certificate(&issuer, &cert_id, &RevocationReason::KeyCompromise, &None);
 
-    let duplicate = client.try_revoke_certificate(
-        &issuer,
-        &cert_id,
-        &RevocationReason::KeyCompromise,
-        &None,
-    );
+    let duplicate =
+        client.try_revoke_certificate(&issuer, &cert_id, &RevocationReason::KeyCompromise, &None);
     assert!(duplicate.is_err());
     assert!(env.events().all().events().is_empty());
 

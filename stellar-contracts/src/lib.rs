@@ -24,9 +24,7 @@ pub use multisig::MultisigCertificateContract;
 
 mod crl;
 // Explicit re-exports replace `pub use crl::*`
-pub use crl::{
-    CRLContract, CRLInfo, CRLRevocationAddedEvent, RevocationInfo, RevocationReason,
-};
+pub use crl::{CRLContract, CRLInfo, CRLRevocationAddedEvent, RevocationInfo, RevocationReason};
 
 pub mod persistent;
 
@@ -1481,7 +1479,6 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::ContractVersion, &ver);
 
         #[allow(deprecated)]
-
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
@@ -1778,5 +1775,3 @@ impl CertificateContract {
         }
     }
 }
-
-
