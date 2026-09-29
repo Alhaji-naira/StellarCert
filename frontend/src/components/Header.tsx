@@ -64,10 +64,6 @@ export default function Header(): JSX.Element {
       : []),
   ];
 
-  const authNavItem: NavItem = user
-    ? { label: 'Sign out', to: '#' }
-    : { label: 'Sign in', to: '/login' };
-
   return (
     <header className="no-print border-b border-gray-200 bg-white transition-colors duration-250 dark:border-white/10 dark:bg-slate-950/90 dark:backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">

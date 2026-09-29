@@ -267,12 +267,14 @@ export interface AuditStatistics {
 /**
  * Standard API error response
  */
-export interface ApiError {
+export interface ApiErrorResponse {
   message: string;
   statusCode: number;
   error?: string;
   details?: unknown;
 }
+
+export type ApiErrorData = ApiErrorResponse;
 
 /**
  * API Error class that extends Error for proper instanceof checks
