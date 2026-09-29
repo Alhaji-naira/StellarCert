@@ -11,11 +11,13 @@ const Login = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = getSafeRedirectPath(searchParams.get("returnUrl"));
+  const messageParam = searchParams.get("message");
   const { login } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(messageParam);
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
@@ -143,45 +145,51 @@ const Login = () => {
           {isLogin ? "Welcome Back" : "Create Account"}
         </h1>
         {error && <p className="text-red-600 dark:text-red-400 text-center mb-4">{error}</p>}
+        {successMessage && <p className="text-green-600 dark:text-green-400 text-center mb-4">{successMessage}</p>}
         <form onSubmit={handleSubmit} className="space-y-6">
           {!isLogin && (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">First Name</label>
-                <input type="text" value={formData.firstName}
+                <label htmlFor="login-first-name" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">First Name</label>
+                <input id="login-first-name" type="text" value={formData.firstName}
                   onChange={e => setFormData({ ...formData, firstName: e.target.value })}
                   className="w-full px-4 py-2 border rounded-md bg-white dark:bg-slate-800 text-gray-900 dark:text-white border-gray-300 dark:border-slate-700" required />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Last Name</label>
-                <input type="text" value={formData.lastName}
+                <label htmlFor="login-last-name" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Last Name</label>
+                <input id="login-last-name" type="text" value={formData.lastName}
                   onChange={e => setFormData({ ...formData, lastName: e.target.value })}
                   className="w-full px-4 py-2 border rounded-md bg-white dark:bg-slate-800 text-gray-900 dark:text-white border-gray-300 dark:border-slate-700" required />
               </div>
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Email Address</label>
-            <input type="email" value={formData.email}
+            <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Email Address</label>
+            <input id="login-email" type="email" value={formData.email}
               onChange={e => setFormData({ ...formData, email: e.target.value })}
               className="w-full px-4 py-2 border rounded-md bg-white dark:bg-slate-800 text-gray-900 dark:text-white border-gray-300 dark:border-slate-700" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Password</label>
+            <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Password</label>
             <div className="relative">
-              <input type={showPassword ? "text" : "password"} value={formData.password}
+              <input id="login-password" type={showPassword ? "text" : "password"} value={formData.password}
                 onChange={e => setFormData({ ...formData, password: e.target.value })}
                 className="w-full px-4 py-2 border rounded-md bg-white dark:bg-slate-800 text-gray-900 dark:text-white border-gray-300 dark:border-slate-700 pr-10" required />
-              <button type="button" onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400"
+              >
                 {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
             </div>
           </div>
           {!isLogin && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Confirm Password</label>
-              <input type={showPassword ? "text" : "password"} value={formData.confirmPassword}
+              <label htmlFor="login-confirm-password" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Confirm Password</label>
+              <input id="login-confirm-password" type={showPassword ? "text" : "password"} value={formData.confirmPassword}
                 onChange={e => setFormData({ ...formData, confirmPassword: e.target.value })}
                 className="w-full px-4 py-2 border rounded-md bg-white dark:bg-slate-800 text-gray-900 dark:text-white border-gray-300 dark:border-slate-700" required />
             </div>
@@ -204,7 +212,8 @@ const Login = () => {
                   <div className="text-sm text-green-600">{forgotSuccess}</div>
                 ) : (
                   <div className="flex gap-2">
-                    <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
+                    <label htmlFor="forgot-password-email" className="sr-only">Account email</label>
+                    <input id="forgot-password-email" type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
                       placeholder="you@example.com" className="flex-1 px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
                     <button onClick={async () => {
                       setForgotLoading(true); setError(null);
@@ -227,7 +236,7 @@ const Login = () => {
           </div>
         )}
         <div className="mt-6 text-center">
-          <button onClick={() => { setIsLogin(!isLogin); setError(null); }}
+          <button onClick={() => { setIsLogin(!isLogin); setError(null); setSuccessMessage(null); }}
             className="text-blue-600 dark:text-blue-400 hover:underline">
             {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
           </button>

@@ -270,11 +270,6 @@
 
 ---
 
-**Title:** `multisig.rs` `init_multisig_config` panics if already initialized — no upgrade or reconfiguration path
-**Labels:** `bug` `contract`
-**Body:** Once the multisig contract is initialized it cannot be reconfigured — not even by the admin. There is no `update_config` function. If the threshold or signer list needs to change after deployment, the entire contract must be redeployed, losing all pending request history. Add an `update_multisig_config` function gated by admin auth.
-
----
 
 **Title:** `freeze_certificate` does not verify caller is still in the authorized issuer list
 **Labels:** `bug` `security` `contract`

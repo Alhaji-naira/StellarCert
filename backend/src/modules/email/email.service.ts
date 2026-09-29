@@ -67,7 +67,20 @@ export class EmailService {
       return;
     }
 
-    // No credentials configured — use Ethereal test account in dev
+    // No credentials configured — use Ethereal only in non-production environments
+    if (process.env.NODE_ENV === 'production') {
+      this.logger.warn(
+        'No email credentials configured in production — email sending is disabled. ' +
+          'Set EMAIL_HOST/EMAIL_USERNAME or SENDGRID_API_KEY to enable.',
+      );
+      this.transporter = nodemailer.createTransport({
+        streamTransport: true,
+        newline: 'unix',
+        buffer: true,
+      });
+      return;
+    }
+
     this.logger.log(
       'No email credentials configured — creating Ethereal test account...',
     );
@@ -79,10 +92,10 @@ export class EmailService {
         secure: false,
         auth: { user: testAccount.user, pass: testAccount.pass },
       });
+      // Log only the inbox address, never the password
       this.logger.log(
-        `Ethereal test account: ${testAccount.user} / ${testAccount.pass}`,
+        `Ethereal test account created: ${testAccount.user} — visit https://ethereal.email to read sent mail`,
       );
-      this.logger.log('Email previews available at https://ethereal.email');
     } catch (err) {
       this.logger.error(
         `Failed to create Ethereal test account: ${err.message}`,
@@ -103,6 +116,8 @@ export class EmailService {
       'verification-email',
       'password-reset',
       'revocation-notice',
+      'transfer-confirmation',
+      'transfer-completed',
     ];
 
     templates.forEach((templateName) => {
@@ -226,6 +241,49 @@ export class EmailService {
             day: 'numeric',
           },
         ),
+      },
+    };
+
+    await this.sendEmail(emailDto);
+  }
+
+  async sendTransferConfirmationCode(dto: {
+    to: string;
+    recipientName?: string;
+    certificateTitle: string;
+    certificateId: string;
+    confirmationCode: string;
+  }): Promise<void> {
+    const emailDto: SendEmailDto = {
+      to: dto.to,
+      subject: `Certificate Transfer Confirmation: ${dto.certificateTitle}`,
+      template: 'transfer-confirmation',
+      data: {
+        recipientName: dto.recipientName || 'User',
+        certificateTitle: dto.certificateTitle,
+        certificateId: dto.certificateId,
+        confirmationCode: dto.confirmationCode,
+      },
+    };
+
+    await this.sendEmail(emailDto);
+  }
+
+  async sendTransferCompletedNotice(dto: {
+    to: string;
+    recipientName?: string;
+    certificateTitle: string;
+    certificateId: string;
+  }): Promise<void> {
+    const emailDto: SendEmailDto = {
+      to: dto.to,
+      subject: `Certificate Transfer Completed: ${dto.certificateTitle}`,
+      template: 'transfer-completed',
+      data: {
+        recipientName: dto.recipientName || 'User',
+        certificateTitle: dto.certificateTitle,
+        certificateId: dto.certificateId,
+        certificateLink: `${this.getBaseUrl()}/certificates/${dto.certificateId}`,
       },
     };
 
