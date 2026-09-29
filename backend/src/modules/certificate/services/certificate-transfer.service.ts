@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,6 +12,8 @@ import {
   TransferStatus,
 } from '../entities/certificate-transfer.entity';
 import { Certificate } from '../entities/certificate.entity';
+import { User } from '../../users/entities/user.entity';
+import { EmailService } from '../../email/email.service';
 import { InitiateTransferDto } from '../dto/transfer-certificate.dto';
 import { AuditService } from '../../audit/services/audit.service';
 import { AuditAction, AuditResourceType } from '../../audit/constants';
@@ -18,6 +21,7 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { NotificationType } from '../../notifications/entities/notification.entity';
 import { LoggingService } from '../../../common/logging/logging.service';
 import { UserRole } from '../../../common/constants/roles';
+import { CryptoUtils } from '../../../common/utils/crypto.utils';
 
 @Injectable()
 export class CertificateTransferService {
@@ -29,6 +33,11 @@ export class CertificateTransferService {
     private readonly auditService: AuditService,
     private readonly notificationsService: NotificationsService,
     private readonly logger: LoggingService,
+    @Optional()
+    @InjectRepository(User)
+    private readonly userRepository?: Repository<User>,
+    @Optional()
+    private readonly emailService?: EmailService,
   ) {}
 
   async initiateTransfer(
@@ -76,7 +85,7 @@ export class CertificateTransferService {
       );
     }
 
-    const confirmationCode = this.generateConfirmationCode();
+    const confirmationCode = await this.generateConfirmationCode();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // Transfer expires in 7 days
 
@@ -112,13 +121,47 @@ export class CertificateTransferService {
       status: 'success',
     });
 
-    // Notify the new owner
+    // Notify initiator (without exposing confirmation code)
     await this.notificationsService.createNotification(
       initiator.id,
       NotificationType.INFO,
       'Certificate Transfer Initiated',
-      `Transfer of certificate "${certificate.title}" to ${dto.newOwnerEmail} has been initiated. Confirmation code: ${confirmationCode}`,
+      `Transfer of certificate "${certificate.title}" to ${dto.newOwnerEmail} has been initiated.`,
     );
+
+    // Look up the new owner (toEmail) user account
+    const recipientUser = this.userRepository
+      ? await this.userRepository.findOne({
+          where: { email: dto.newOwnerEmail },
+        })
+      : null;
+
+    if (recipientUser) {
+      // Send notification with confirmation code to the intended new owner
+      await this.notificationsService.createNotification(
+        recipientUser.id,
+        NotificationType.INFO,
+        'Certificate Transfer Confirmation Code',
+        `A transfer of certificate "${certificate.title}" to your account has been initiated. Your confirmation code is: ${confirmationCode}`,
+      );
+    }
+
+    // Send confirmation email containing the secret code to the new owner (toEmail)
+    if (this.emailService) {
+      try {
+        await this.emailService.sendTransferConfirmationCode({
+          to: dto.newOwnerEmail,
+          recipientName: dto.newOwnerName || recipientUser?.firstName || 'User',
+          certificateTitle: certificate.title,
+          certificateId: certificate.id,
+          confirmationCode,
+        });
+      } catch (emailErr) {
+        this.logger.warn(
+          `Failed to send transfer confirmation email to ${dto.newOwnerEmail}: ${emailErr.message}`,
+        );
+      }
+    }
 
     this.logger.log(
       `Transfer initiated for certificate ${dto.certificateId} from ${certificate.recipientEmail} to ${dto.newOwnerEmail}`,
@@ -236,13 +279,45 @@ export class CertificateTransferService {
       status: 'success',
     });
 
-    // Notify both parties
+    // Notify approver
     await this.notificationsService.createNotification(
       approver.id,
       NotificationType.SUCCESS,
       'Certificate Transfer Completed',
       `Certificate "${certificate.title}" has been successfully transferred to ${transfer.toEmail}.`,
     );
+
+    // Look up the new owner (toEmail) user account and notify on completion
+    const recipientUser = this.userRepository
+      ? await this.userRepository.findOne({
+          where: { email: transfer.toEmail },
+        })
+      : null;
+
+    if (recipientUser) {
+      await this.notificationsService.createNotification(
+        recipientUser.id,
+        NotificationType.SUCCESS,
+        'Certificate Transfer Completed',
+        `Certificate "${certificate.title}" has been successfully transferred to your account.`,
+      );
+    }
+
+    // Send completion email to new owner (toEmail)
+    if (this.emailService) {
+      try {
+        await this.emailService.sendTransferCompletedNotice({
+          to: transfer.toEmail,
+          recipientName: transfer.toName || recipientUser?.firstName || 'User',
+          certificateTitle: certificate.title,
+          certificateId: certificate.id,
+        });
+      } catch (emailErr) {
+        this.logger.warn(
+          `Failed to send transfer completed email to ${transfer.toEmail}: ${emailErr.message}`,
+        );
+      }
+    }
 
     this.logger.log(
       `Transfer ${transferId} approved for certificate ${transfer.certificateId}`,
@@ -379,12 +454,18 @@ export class CertificateTransferService {
     });
   }
 
-  private generateConfirmationCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+  private async generateConfirmationCode(): Promise<string> {
+    const maxRetries = 10;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const code = CryptoUtils.generateAlphanumericCode(6);
+      const exists = await this.transferRepository.findOne({
+        where: { confirmationCode: code },
+        select: ['id'],
+      });
+      if (!exists) return code;
     }
-    return code;
+    throw new ConflictException(
+      'Failed to generate a unique confirmation code after multiple attempts',
+    );
   }
 }
