@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { userApi } from '../../../api/endpoints';
 import type { User as ApiUser } from '../../../api/types';
+import { getErrorMessage } from '../../../api/types';
 
 interface User extends ApiUser {
   name?: string;
@@ -31,7 +32,7 @@ const UserManagement: React.FC = () => {
           : data.data;
       setUsers(nextUsers);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch users');
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -47,7 +48,7 @@ const UserManagement: React.FC = () => {
     try {
       await userApi.updateRole(userId, newRole);
       setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole as User['role'] } : u));
-    } catch { setError('Failed to update role.'); }
+    } catch (err: unknown) { setError(getErrorMessage(err)); }
     finally { setUpdatingId(null); }
   };
 
@@ -56,7 +57,7 @@ const UserManagement: React.FC = () => {
     try {
       await userApi.toggleStatus(userId, !current);
       setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, isActive: !current } : u));
-    } catch { setError('Failed to update status.'); }
+    } catch (err: unknown) { setError(getErrorMessage(err)); }
     finally { setUpdatingId(null); }
   };
 
@@ -65,7 +66,7 @@ const UserManagement: React.FC = () => {
     try {
       await userApi.delete(userId);
       setUsers((prev) => prev.filter((u) => u.id !== userId));
-    } catch { setError('Failed to delete user.'); }
+    } catch (err: unknown) { setError(getErrorMessage(err)); }
   };
 
   const roleBadge = (role: string) =>
