@@ -78,45 +78,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user, accessToken]);
 
   useEffect(() => {
-    // Check token or rehydrate via refresh cookie on app load
-    const rehydrateOrCheck = async () => {
-      const currentToken = tokenStorage.getAccessToken();
+    /**
+     * Bootstrap authentication before rendering any application routes.
+     *
+     * The access token intentionally lives only in memory, so a full page load
+     * cannot reuse it. One explicit refresh establishes the session from the
+     * HttpOnly refresh-token cookie. AuthProvider keeps isLoading=true until
+     * this finishes, preventing protected components from issuing 401s during
+     * startup and eliminating the refresh burst/cooldown workaround.
+     */
+    const bootstrap = async () => {
+      try {
+        const response = await authApi.bootstrapAuth();
 
-      if (currentToken && !isTokenExpired(currentToken)) {
-        setAccessTokenState(currentToken);
-        setIsLoading(false);
-      } else if (currentToken && isTokenExpired(currentToken)) {
-        console.warn('Access token expired, clearing authentication state');
-        tokenStorage.clearTokens();
-        setUserState(null);
-        setAccessTokenState(null);
-        setIsLoading(false);
-      } else {
-        // Attempt silent token refresh via HttpOnly cookie on initial load
-        try {
-          const response = await authApi.refresh();
-          if (response.accessToken && !isTokenExpired(response.accessToken)) {
-            tokenStorage.setAccessToken(response.accessToken);
-            setAccessTokenState(response.accessToken);
-            if (response.user) {
-              setUserState(response.user);
-            }
-          } else {
-            tokenStorage.clearTokens();
-            setUserState(null);
-            setAccessTokenState(null);
+        if (response.accessToken && !isTokenExpired(response.accessToken)) {
+          tokenStorage.setAccessToken(response.accessToken);
+          setAccessTokenState(response.accessToken);
+          if (response.user) {
+            setUserState(response.user);
           }
-        } catch {
+        } else {
           tokenStorage.clearTokens();
           setUserState(null);
           setAccessTokenState(null);
-        } finally {
-          setIsLoading(false);
         }
+      } catch {
+        // No valid refresh cookie means the app starts unauthenticated.
+        tokenStorage.clearTokens();
+        setUserState(null);
+        setAccessTokenState(null);
+      } finally {
+        setIsLoading(false);
       }
     };
 
-    rehydrateOrCheck();
+    bootstrap();
 
     // Keep AuthContext in sync when apiClient silently refreshes the access token.
     setTokenRefreshCallback((newAccessToken, refreshedUser) => {
@@ -143,7 +139,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     return () => {
       clearInterval(interval);
-      // Drop the callback so a torn-down provider can't update stale state.
       setTokenRefreshCallback(() => {});
     };
   }, []);
