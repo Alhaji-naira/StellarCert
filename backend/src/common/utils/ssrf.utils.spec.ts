@@ -7,8 +7,17 @@ jest.mock('dns', () => ({
   resolve6: jest.fn(),
 }));
 
-const mockResolve4 = dns.resolve4 as unknown as jest.MockedFunction<(h: string, cb: (e: Error | null, a: string[]) => void) => void>;
-const mockResolve6 = dns.resolve6 as unknown as jest.MockedFunction<(h: string, cb: (e: Error | null, a: string[]) => void) => void>;
+type DnsResolveCallback = (
+  error: NodeJS.ErrnoException | null,
+  addresses: string[],
+) => void;
+
+const mockResolve4 = dns.resolve4 as unknown as jest.MockedFunction<
+  (hostname: string, callback: DnsResolveCallback) => void
+>;
+const mockResolve6 = dns.resolve6 as unknown as jest.MockedFunction<
+  (hostname: string, callback: DnsResolveCallback) => void
+>;
 
 function mockDnsSuccess(ipv4: string[] = [], ipv6: string[] = []) {
   mockResolve4.mockImplementation((_hostname, cb) => {
