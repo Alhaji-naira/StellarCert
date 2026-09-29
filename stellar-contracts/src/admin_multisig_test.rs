@@ -43,7 +43,7 @@ fn test_admin_multisig_flow() {
     let status2 = client.approve_action(&proposal_id, &admin3);
     assert_eq!(status2, AdminProposalStatus::Executed);
 
-    let stored_proposal = client.get_proposal(&proposal_id);
+    let stored_proposal = client.get_proposal(&proposal_id, &admin1);
     assert_eq!(stored_proposal.status, AdminProposalStatus::Executed);
 }
 
@@ -187,11 +187,11 @@ fn test_cancel_proposal() {
     let action = AdminAction::Other(String::from_str(&env, "to_be_canceled"));
 
     client.propose_action(&proposal_id, &admin1, &action);
-    let proposal = client.get_proposal(&proposal_id);
+    let proposal = client.get_proposal(&proposal_id, &admin1);
     assert_eq!(proposal.status, AdminProposalStatus::Pending);
 
     client.cancel_proposal(&proposal_id, &admin1);
-    let canceled_proposal = client.get_proposal(&proposal_id);
+    let canceled_proposal = client.get_proposal(&proposal_id, &admin1);
     assert_eq!(canceled_proposal.status, AdminProposalStatus::Cancelled);
     // The whole point of the fix: a cancellation must never be reported as a
     // rejection, so audit logs and indexers can tell the two apart.
@@ -214,7 +214,7 @@ fn test_proposal_payload_is_untouched_by_cancellation() {
 
     let proposed = client.propose_action(&proposal_id, &admin1, &action);
     client.cancel_proposal(&proposal_id, &admin1);
-    let canceled = client.get_proposal(&proposal_id);
+    let canceled = client.get_proposal(&proposal_id, &admin1);
 
     // Cancelling records a new status and nothing else: the action, proposer,
     // window and (empty) approval set stay exactly as proposed.
@@ -304,4 +304,27 @@ fn test_init_rejects_threshold_above_signer_count() {
 
     env.mock_all_auths();
     client.init_admin_multisig(&5, &signers, &10); // threshold=5 > 3 signers → panic
+}
+
+#[test]
+#[should_panic(expected = "Not an authorized admin signer")]
+fn test_non_signer_cannot_read_proposal() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let outsider = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin1.clone(), admin2]);
+
+    env.mock_all_auths();
+    client.init_admin_multisig(&2, &signers, &10);
+
+    let proposal_id = String::from_str(&env, "prop-private");
+    let action = AdminAction::Other(String::from_str(&env, "sensitive_action"));
+    client.propose_action(&proposal_id, &admin1, &action);
+
+    // A non-signer must not be able to read the proposal details.
+    client.get_proposal(&proposal_id, &outsider);
 }
