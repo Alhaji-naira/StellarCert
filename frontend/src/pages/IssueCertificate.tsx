@@ -89,9 +89,10 @@ const IssueCertificate = () => {
       return 'Issuer name must be at least 2 characters.';
     if (!formData.grade) return 'Please select a grade.';
     if (!formData.issueDate) return 'Please select an issue date.';
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    if (new Date(`${formData.issueDate}T00:00:00`) > today) return 'Issue date cannot be in the future.';
-    if (formData.expiryDate && new Date(`${formData.expiryDate}T00:00:00`) <= new Date(`${formData.issueDate}T00:00:00`))
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    if (new Date(`${formData.issueDate}T00:00:00Z`) > today) return 'Issue date cannot be in the future.';
+    if (formData.expiryDate && new Date(`${formData.expiryDate}T00:00:00Z`) <= new Date(`${formData.issueDate}T00:00:00Z`))
       return 'Expiry date must be after the issue date.';
     if (!formData.templateId) return 'Please select a template.';
     return null;

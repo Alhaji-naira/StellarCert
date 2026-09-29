@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, ShieldCheck, Users, FileText, Activity } from 'lucide-react';
 import { adminAnalyticsApi, auditApi, tokenStorage } from '../api';
 import type { AdminAnalytics, AuditLogItem, AuditStatistics } from '../api';
+import { getErrorMessage, ApiError } from '../api/types';
 
 type DateRange = {
   startDate: string;
@@ -49,7 +50,11 @@ async function downloadAuditCsv(params?: Record<string, string | number | boolea
   });
 
   if (!response.ok) {
-    throw new Error('Failed to export audit logs');
+    const errorData = await response.json().catch(() => ({
+      message: response.statusText || "Failed to export audit logs",
+      statusCode: response.status,
+    }));
+    throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
   }
 
   const blob = await response.blob();
@@ -90,11 +95,7 @@ export default function AdminAnalyticsDashboard() {
       setAuditStats(auditStatistics);
       setRecentAudit(auditLogs.data ?? []);
     } catch (err) {
-      const message =
-        err && typeof err === 'object' && 'message' in err
-          ? String((err as { message?: string }).message)
-          : 'Failed to load admin analytics';
-      setError(message);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

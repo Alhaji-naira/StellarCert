@@ -31,6 +31,7 @@ pub fn cancel_request(env: &Env, request: &mut Request) -> Result<(), RequestErr
     request.status = RequestStatus::Cancelled;
 
     // Optional: emit an event
+    #[allow(deprecated)]
     env.events().publish(
         ("request", "cancelled"),
         (request.proposer.clone(), request.id.clone()),
@@ -38,3 +39,4 @@ pub fn cancel_request(env: &Env, request: &mut Request) -> Result<(), RequestErr
 
     Ok(())
 }
+

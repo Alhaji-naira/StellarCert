@@ -20,7 +20,10 @@ impl MultisigCertificateContract {
     }
 
     /// Initialize the contract with a global admin. Can only be called once.
+    /// Initializes the contract admin. See `CertificateContract::initialize`
+    /// for why `require_auth` alone does not close the deploy-to-init race.
     pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("Admin already initialized");
         }

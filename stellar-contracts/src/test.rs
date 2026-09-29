@@ -6,7 +6,7 @@ use soroban_sdk::{testutils::Address as _, Address, Env, String};
 #[test]
 fn test_issue_and_revoke_with_reason() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -43,7 +43,7 @@ fn test_issue_and_revoke_with_reason() {
 #[test]
 fn test_suspend_and_reinstate_with_reason() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -90,7 +90,7 @@ fn test_suspend_and_reinstate_with_reason() {
 #[test]
 fn test_cannot_suspend_non_active_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -119,7 +119,7 @@ fn test_cannot_suspend_non_active_certificate() {
 #[test]
 fn test_update_certificate_metadata() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -156,9 +156,35 @@ fn test_update_certificate_metadata() {
 }
 
 #[test]
-fn test_reissue_certificate() {
+fn test_update_frozen_certificate_metadata() {
     let env = Env::default();
     let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-frozen-update");
+    let metadata_uri = String::from_str(&env, "ipfs://QmOriginal");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+    client.freeze_certificate(&id, &String::from_str(&env, "freeze for update"));
+
+    let new_metadata = String::from_str(&env, "ipfs://QmUpdated");
+    client.update_certificate_metadata(&id, &new_metadata);
+    
+    let cert_after = client.get_certificate(&id).expect("Certificate should exist");
+    assert_eq!(cert_after.metadata_uri, new_metadata);
+    assert_eq!(cert_after.version.minor, 1);
+}
+
+#[test]
+fn test_reissue_certificate() {
+    let env = Env::default();
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -208,7 +234,7 @@ fn test_reissue_certificate() {
 #[test]
 fn test_certificate_transfer_flow() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -290,7 +316,7 @@ fn test_certificate_transfer_flow() {
 #[test]
 fn test_transfer_with_revocation() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -340,7 +366,7 @@ fn test_transfer_with_revocation() {
 #[test]
 fn test_transfer_rejection() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -387,7 +413,7 @@ fn test_transfer_rejection() {
 #[test]
 fn test_transfer_cancellation() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -434,7 +460,7 @@ fn test_transfer_cancellation() {
 #[test]
 fn test_cannot_transfer_non_active_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -463,7 +489,7 @@ fn test_cannot_transfer_non_active_certificate() {
 #[test]
 fn test_multiple_transfers() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -484,7 +510,11 @@ fn test_multiple_transfers() {
     // Issue certificate
     client.issue_certificate(&cert_id, &issuer, &owner, &metadata_uri, &None);
 
-    // Make 3 transfers
+    // Make 3 transfers. #1036 (issue #1021) forbids a second open transfer on
+    // the same certificate, so each one is accepted and completed before the
+    // next is initiated - which is what the original comment here said a real
+    // scenario would have to do anyway. Ownership moves along with it.
+    let mut current_owner = owner.clone();
     for i in 1..=3 {
         // Simplified: just use fixed IDs for no_std compatibility
         let transfer_id = if i == 1 {
@@ -496,17 +526,19 @@ fn test_multiple_transfers() {
         };
         let new_recipient = Address::generate(&env);
 
-        // For this test, we'll just initiate transfers to count them
-        // In real scenario, you'd need to complete each transfer
         client.initiate_transfer(
             &transfer_id,
             &cert_id,
-            &owner,
+            &current_owner,
             &new_recipient,
             &false,
             &0u64,
             &None,
         );
+        client.accept_transfer(&transfer_id, &new_recipient);
+        client.complete_transfer(&transfer_id, &current_owner);
+
+        current_owner = new_recipient;
     }
 
     // Transfer count should be 3
@@ -516,7 +548,7 @@ fn test_multiple_transfers() {
 #[test]
 fn test_batch_verify_with_mixed_statuses() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -569,7 +601,7 @@ fn test_batch_verify_with_mixed_statuses() {
 #[test]
 fn test_certificate_version_tracking() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);

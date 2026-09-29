@@ -270,11 +270,6 @@
 
 ---
 
-**Title:** `multisig.rs` `init_multisig_config` panics if already initialized — no upgrade or reconfiguration path
-**Labels:** `bug` `contract`
-**Body:** Once the multisig contract is initialized it cannot be reconfigured — not even by the admin. There is no `update_config` function. If the threshold or signer list needs to change after deployment, the entire contract must be redeployed, losing all pending request history. Add an `update_multisig_config` function gated by admin auth.
-
----
 
 **Title:** `freeze_certificate` does not verify caller is still in the authorized issuer list
 **Labels:** `bug` `security` `contract`
@@ -360,6 +355,7 @@
 
 **Title:** Two divergent JWT auth guards produce inconsistent `req.user` shapes
 **Labels:** `tech-debt` `backend`
+**Status:** ✅ Fixed 2026-08-31 — deleted the unused passport `JwtStrategy` (only `JwtAuthGuard` remains) and made `JwtAuthGuard` set a single canonical `req.user` shape: `{ id, sub, email, role }` with `id` and `sub` as aliases of the same user id, so both `@CurrentUser('id')` and `@CurrentUser('sub')` resolve regardless of guard.
 **Body:** `JwtAuthGuard` sets `req.user = { ...payload, id: payload.sub }` (raw claims + `sub` + `id`), while passport `JwtStrategy.validate` returns `{ id, email, role, isEmailVerified, twoFactorEnabled }` (no `sub`). Controllers use `@CurrentUser('sub')` in some places (e.g. `certificate-transfer.controller.ts:43,56,73,90`) and `@CurrentUser('id')` in others. A `sub` lookup silently returns `undefined` on any endpoint guarded by the passport strategy, which would break audit logging and ownership checks the moment a `sub`-based controller is switched to the passport guard. Fix: consolidate on one guard and one canonical `req.user` shape.
 
 ---

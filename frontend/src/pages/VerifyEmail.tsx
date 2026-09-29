@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { authApi } from "../api";
+import { getErrorMessage } from "../api/types";
 
 type VerificationState = "loading" | "success" | "error";
 
@@ -30,9 +31,7 @@ const VerifyEmail = () => {
         if (!isMounted) return;
         setState("error");
         setMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to verify this email address.",
+          getErrorMessage(error),
         );
       }
     };

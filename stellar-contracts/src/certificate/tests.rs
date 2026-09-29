@@ -7,7 +7,7 @@ fn test_suspend_certificate_emits_complete_event_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -42,7 +42,7 @@ fn test_update_certificate_metadata_emits_event_successfully() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -77,7 +77,7 @@ fn test_reissue_certificate_atomically_revokes_original() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -114,7 +114,7 @@ fn test_get_multisig_config_rejects_unauthorized_supplied_address() {
     let env = Env::default();
     
     // Do NOT invoke mock_all_auths() to ensure crypto signature verification runs realistically
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let random_spoof_target = Address::generate(&env);
@@ -128,7 +128,7 @@ fn test_get_multisig_config_succeeds_with_valid_caller_signature() {
     let env = Env::default();
     env.mock_all_auths(); // Simulate valid signature placement for the authorized caller
 
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let legitimate_caller = Address::generate(&env);
