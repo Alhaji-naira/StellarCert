@@ -291,7 +291,7 @@ fn test_only_proposer_can_cancel() {
 }
 
 #[test]
-#[should_panic(expected = "Threshold cannot exceed registered signer count")]
+#[should_panic(expected = "Invalid admin multisig configuration")]
 fn test_init_rejects_threshold_above_signer_count() {
     let env = Env::default();
     let contract_id = env.register_contract(None, AdminMultisigContract);

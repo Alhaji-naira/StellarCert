@@ -267,12 +267,14 @@ export interface AuditStatistics {
 /**
  * Standard API error response
  */
-export interface ApiError {
+export interface ApiErrorResponse {
   message: string;
   statusCode: number;
   error?: string;
   details?: unknown;
 }
+
+export type ApiErrorData = ApiErrorResponse;
 
 /**
  * API Error class that extends Error for proper instanceof checks
@@ -408,4 +410,22 @@ export interface PaginatedActivityLog {
     limit: number;
     totalPages: number;
   };
+}
+
+export type NotificationType = "info" | "success" | "error";
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface NotificationPreferences {
+  inAppEnabled: boolean;
+  infoEnabled: boolean;
+  successEnabled: boolean;
+  errorEnabled: boolean;
 }

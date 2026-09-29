@@ -504,7 +504,7 @@ describe('CertificateService', () => {
       );
 
       expect(saved.status).toBe(CertificateStatus.FROZEN);
-      expect(saved.metadata.freezeDurationDays).toBe(7);
+      expect(saved.metadata?.freezeDurationDays).toBe(7);
     });
 
     it('lets the owning issuer unfreeze and emits CERTIFICATE_UNFROZEN', async () => {

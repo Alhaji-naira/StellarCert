@@ -7,6 +7,8 @@ import { CertificateStatus } from '../../constants/certificate-status.enum';
 import { WebhooksService } from '../../../webhooks/webhooks.service';
 import { WebhookEvent } from '../../../webhooks/entities/webhook-subscription.entity';
 import { LoggingService } from '../../../../common/logging/logging.service';
+import { EmailService } from '../../../email/email.service';
+import { CertificatePdfService } from '../../services/pdf.service';
 
 @Processor('certificate-jobs')
 export class JobsProcessor {
@@ -15,18 +17,33 @@ export class JobsProcessor {
     private readonly certificateRepository: Repository<Certificate>,
     private readonly webhooksService: WebhooksService,
     private readonly logger: LoggingService,
+    private readonly emailService: EmailService,
+    private readonly pdfService: CertificatePdfService,
   ) {}
 
   @Process('send-email')
-  handleEmail(job: Job) {
+  async handleEmail(job: Job) {
     this.logger.log(`Sending email with payload: ${JSON.stringify(job.data)}`);
-    // integrate with email service
+    await this.emailService.sendEmail({
+      to: job.data.recipientEmail,
+      subject: job.data.subject,
+      template: 'certificate-issued',
+      data: job.data.metadata || { body: job.data.body },
+    });
   }
 
   @Process('generate-pdf')
-  handlePdf(job: Job) {
+  async handlePdf(job: Job) {
     this.logger.log(`Generating PDF with payload: ${JSON.stringify(job.data)}`);
-    // integrate with PDF generator
+    const certificate = await this.certificateRepository.findOne({
+      where: { id: job.data.certificateId },
+    });
+    if (certificate) {
+      await this.pdfService.generate(certificate);
+      this.logger.log(`PDF generated for certificate: ${certificate.id}`);
+    } else {
+      this.logger.warn(`Certificate not found: ${job.data.certificateId}`);
+    }
   }
 
   @Process('expiration-check')

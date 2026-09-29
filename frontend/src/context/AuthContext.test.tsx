@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { screen, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   AuthProvider,
@@ -10,11 +10,16 @@ import {
 import { tokenStorage, notifyTokenRefreshed } from '../api/tokens';
 import { authApi } from '../api/endpoints';
 import { User, UserRole } from '../api/types';
+import { createTestQueryClient } from '../test/renderWithProviders';
+import { renderWithProviders } from '../test/renderWithProviders';
 
 vi.mock('../api/endpoints', () => ({
   authApi: {
     bootstrapAuth: vi.fn().mockRejectedValue(new Error('No refresh cookie')),
     refresh: vi.fn().mockRejectedValue(new Error('No refresh cookie')),
+  },
+  userApi: {
+    getProfile: vi.fn(),
   },
 }));
 
@@ -44,11 +49,14 @@ const Consumer: React.FC = () => {
   );
 };
 
+// AuthProvider mirrors the session user into the query cache, so it needs a
+// QueryClientProvider above it — the same nesting the app uses in main.tsx.
 const renderAuth = () =>
-  render(
+  renderWithProviders(
     <AuthProvider>
       <Consumer />
     </AuthProvider>,
+    { queryClient: createTestQueryClient() },
   );
 
 beforeEach(() => {

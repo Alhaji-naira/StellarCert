@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
     Search,
     ChevronUp,
@@ -15,9 +15,18 @@ import {
     Send,
     History
 } from 'lucide-react';
-import { certificateApi, auditApi } from '../api';
+import { certificateApi } from '../api';
 import type { Certificate, CertificateExportFilters, ActivityItem } from '../api';
 import Modal from './Modal';
+import { useDebounce } from '../hooks/useDebounce';
+import {
+    useBulkRevokeCertificatesMutation,
+    useCertificateHistoryQuery,
+    useCertificatesQuery,
+    useFreezeCertificateMutation,
+    useInitiateTransferMutation,
+    useUnfreezeCertificateMutation,
+} from '../api/queries';
 
 type SortField = 'recipientName' | 'title' | 'issuerName' | 'issueDate' | 'status' | 'serialNumber';
 type SortOrder = 'asc' | 'desc';
@@ -26,23 +35,6 @@ interface CertificateTableProps {
     onError?: (message: string) => void;
     onSuccess?: (message: string) => void;
 }
-
-// Debounce hook for search inputs
-const useDebounce = (value: string, delay: number) => {
-    const [debouncedValue, setDebouncedValue] = useState(value);
-
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            setDebouncedValue(value);
-        }, delay);
-
-        return () => {
-            clearTimeout(handler);
-        };
-    }, [value, delay]);
-
-    return debouncedValue;
-};
 
 // One place for the message a user must see when an action fails. Rendered
 // inside the dialog that started the action when there is one, and above the
@@ -58,13 +50,11 @@ const ActionError = ({ message, className = '' }: { message: string | null; clas
     ) : null;
 
 const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
-    // State for data and pagination
-    const [certificates, setCertificates] = useState<Certificate[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [total, setTotal] = useState(0);
+    // Pagination / filter / sort inputs. The list is a single query keyed on all
+    // of them, so revisiting a combination that was already loaded is instant
+    // and the six post-mutation refetch calls collapse into invalidation.
     const [page, setPage] = useState(1);
     const [limit, setLimit] = useState(10);
-    const [totalPages, setTotalPages] = useState(0);
 
     // State for filters
     const [search, setSearch] = useState('');
@@ -77,13 +67,44 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     const [sortBy, setSortBy] = useState<SortField>('issueDate');
     const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
+    const certificatesQuery = useCertificatesQuery({
+        page,
+        limit,
+        search: debouncedSearch || undefined,
+        status: statusFilter || undefined,
+        sortBy,
+        sortOrder,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+    });
+
+    const certificates: Certificate[] = certificatesQuery.data?.data ?? [];
+    const loading = certificatesQuery.isPending;
+    const total = certificatesQuery.data?.total ?? 0;
+    const totalPages = certificatesQuery.data?.totalPages ?? 0;
+
+    // Drives the "export all filtered" count and the table's own empty state.
+    const filteredCount = total;
+
+    // Report a failed page load to the parent once per failure.
+    const reportedError = useRef(false);
+    useEffect(() => {
+        if (certificatesQuery.isError) {
+            if (reportedError.current) return;
+            reportedError.current = true;
+            console.error('Failed to fetch certificates:', certificatesQuery.error);
+            onError?.('Failed to fetch certificates');
+        } else {
+            reportedError.current = false;
+        }
+    }, [certificatesQuery.isError, certificatesQuery.error, onError]);
+
     // State for selection
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [selectAll, setSelectAll] = useState(false);
 
     // State for filtered export
     const [exportingFiltered, setExportingFiltered] = useState(false);
-    const [filteredCount, setFilteredCount] = useState(0);
 
     // Freeze modal state
     const [showFreezeModal, setShowFreezeModal] = useState(false);
@@ -105,18 +126,26 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         reason: ''
     });
 
-    // History modal state
+    // History modal state. The audit trail is server state too, so it is fetched
+    // by key rather than copied into local state.
     const [showHistoryModal, setShowHistoryModal] = useState(false);
-    const [, setSelectedCertId] = useState<string | null>(null);
-    const [certHistory, setCertHistory] = useState<ActivityItem[]>([]);
-    const [loadingHistory, setLoadingHistory] = useState(false);
+    const [historyCertId, setHistoryCertId] = useState<string | null>(null);
+    const historyQuery = useCertificateHistoryQuery(
+        showHistoryModal ? historyCertId : null,
+    );
+    const certHistory: ActivityItem[] = historyQuery.data ?? [];
+    const loadingHistory = historyQuery.isPending;
 
     // Failure/feedback state. `loadError` is separate from the certificate list
     // so a failed load can render as a failure with a retry rather than as an
     // empty result set. `pendingAction` drives the in-flight (disabled) state of
     // the buttons that fire a mutation, so a double click cannot double-submit.
     const [actionError, setActionError] = useState<string | null>(null);
-    const [loadError, setLoadError] = useState<string | null>(null);
+    // `loadError` is separate from the certificate list so a failed load can
+    // render as a failure with a retry rather than as an empty result set. The
+    // query owns the failure, so the message is derived from it rather than
+    // copied into state that could drift out of sync with the query.
+    const loadError = certificatesQuery.isError ? 'Failed to fetch certificates' : null;
     const [pendingAction, setPendingAction] = useState<string | null>(null);
 
     // Certificate detail modal state. Holds the row's certificate rather than
@@ -124,41 +153,13 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     // opening it needs no second request.
     const [viewingCertificate, setViewingCertificate] = useState<Certificate | null>(null);
 
-    // Fetch certificates
-    const fetchCertificates = useCallback(async () => {
-        setLoading(true);
-        setLoadError(null);
-        try {
-            const params = {
-                page,
-                limit,
-                search: debouncedSearch || undefined,
-                status: statusFilter || undefined,
-                sortBy,
-                sortOrder,
-                startDate: startDate || undefined,
-                endDate: endDate || undefined,
-            };
-
-            const response = await certificateApi.list(params);
-            setCertificates(response.data);
-            setTotal(response.total);
-            setTotalPages(response.totalPages);
-
-            // Set filtered count for export all functionality
-            setFilteredCount(response.total);
-        } catch (err) {
-            console.error('Failed to fetch certificates:', err);
-            setLoadError('Failed to fetch certificates');
-            onError?.('Failed to fetch certificates');
-        } finally {
-            setLoading(false);
-        }
-    }, [page, limit, debouncedSearch, statusFilter, sortBy, sortOrder, startDate, endDate, onError]);
-
-    useEffect(() => {
-        fetchCertificates();
-    }, [fetchCertificates]);
+    // Row actions. Each mutation invalidates the certificate queries instead of
+    // the table re-fetching by hand, so a list open elsewhere in the app (or in
+    // another tab) stays consistent too.
+    const freezeMutation = useFreezeCertificateMutation();
+    const unfreezeMutation = useUnfreezeCertificateMutation();
+    const revokeMutation = useBulkRevokeCertificatesMutation();
+    const transferMutation = useInitiateTransferMutation();
 
     // Handle sort
     const handleSort = (field: SortField) => {
@@ -273,13 +274,15 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         setActionError(null);
         setPendingAction('revoke');
         try {
-            await certificateApi.bulkRevoke(revokingCertIds, revokeReason);
+            await revokeMutation.mutateAsync({
+                certificateIds: revokingCertIds,
+                reason: revokeReason,
+            });
             onSuccess?.('Certificates revoked successfully');
             setShowRevokeModal(false);
             setRevokeReason('');
             setSelectedIds(new Set());
             setSelectAll(false);
-            fetchCertificates();
         } catch (err) {
             console.error('Revoke failed:', err);
             setActionError('Failed to revoke certificates');
@@ -308,13 +311,16 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         setPendingAction('freeze');
         try {
             const durationDays = Math.max(1, Number.isFinite(freezeDuration) ? Math.trunc(freezeDuration) : 1);
-            await certificateApi.freeze(freezingCertId, freezeReason, durationDays);
+            await freezeMutation.mutateAsync({
+                certificateId: freezingCertId,
+                reason: freezeReason,
+                durationDays,
+            });
             onSuccess?.('Certificate frozen successfully');
             setShowFreezeModal(false);
             setFreezeReason('');
             setFreezeDuration(7);
             setFreezingCertId(null);
-            fetchCertificates();
         } catch (err) {
             console.error('Freeze failed:', err);
             setActionError('Failed to freeze certificate');
@@ -329,9 +335,8 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         setActionError(null);
         setPendingAction(`unfreeze:${certId}`);
         try {
-            await certificateApi.unfreeze(certId);
+            await unfreezeMutation.mutateAsync(certId);
             onSuccess?.('Certificate unfrozen successfully');
-            fetchCertificates();
         } catch (err) {
             console.error('Unfreeze failed:', err);
             setActionError('Failed to unfreeze certificate');
@@ -361,10 +366,9 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         setActionError(null);
         setPendingAction('transfer');
         try {
-            await certificateApi.transfer.initiate(transferData);
+            await transferMutation.mutateAsync(transferData);
             onSuccess?.('Transfer initiated successfully. New owner must approve.');
             setShowTransferModal(false);
-            fetchCertificates();
         } catch (err) {
             console.error('Transfer failed:', err);
             setActionError('Failed to initiate transfer');
@@ -374,23 +378,29 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         }
     };
 
-    // Handle History
-    const handleViewHistory = async (certId: string) => {
-        setSelectedCertId(certId);
+    // Handle History. The request itself belongs to `useCertificateHistoryQuery`;
+    // opening the dialog just selects the key it should load.
+    const handleViewHistory = (certId: string) => {
+        setHistoryCertId(certId);
         setShowHistoryModal(true);
-        setLoadingHistory(true);
         setActionError(null);
-        try {
-            const history = await auditApi.getCertificateHistory(certId);
-            setCertHistory(history);
-        } catch (err) {
-            console.error('Failed to fetch history:', err);
+    };
+
+    // Surface a failed history load in the dialog that asked for it, so the
+    // failure is not only a console entry. Reported once per failure, the same
+    // way the certificate list reports its own.
+    const reportedHistoryError = useRef(false);
+    useEffect(() => {
+        if (historyQuery.isError) {
+            if (reportedHistoryError.current) return;
+            reportedHistoryError.current = true;
+            console.error('Failed to fetch history:', historyQuery.error);
             setActionError('Failed to load certificate history');
             onError?.('Failed to load certificate history');
-        } finally {
-            setLoadingHistory(false);
+        } else {
+            reportedHistoryError.current = false;
         }
-    };
+    }, [historyQuery.isError, historyQuery.error, onError]);
 
     const closeHistoryModal = () => {
         setShowHistoryModal(false);
@@ -636,7 +646,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                         </p>
                                         <button
                                             type="button"
-                                            onClick={() => fetchCertificates()}
+                                            onClick={() => { void certificatesQuery.refetch(); }}
                                             className="mt-4 inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
                                         >
                                             Retry

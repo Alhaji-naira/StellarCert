@@ -6,6 +6,8 @@ import {
   Param,
   Query,
   Res,
+  UseGuards,
+  Optional,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
@@ -26,13 +28,18 @@ import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/roles';
 
+import { LoggingService } from '../../../common/logging/logging.service';
+
 @ApiTags('Audit')
 @ApiBearerAuth()
 @Controller('audit')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AuditController {
-  constructor(private readonly auditService: AuditService) {}
+  constructor(
+    private readonly auditService: AuditService,
+    @Optional() private readonly logger?: LoggingService,
+  ) {}
 
   /**
    * Search and filter audit logs.
@@ -141,16 +148,23 @@ export class AuditController {
     @Query() searchDto: AuditSearchDto,
     @Res() res: Response,
   ): Promise<void> {
-    const csv = await this.auditService.exportToCsv(searchDto);
+    try {
+      const csv = await this.auditService.exportToCsv(searchDto);
 
-    res
-      .status(HttpStatus.OK)
-      .setHeader('Content-Type', 'text/csv; charset=utf-8')
-      .setHeader(
-        'Content-Disposition',
-        `attachment; filename="audit-logs-${Date.now()}.csv"`,
-      )
-      .send(csv);
+      res
+        .status(HttpStatus.OK)
+        .setHeader('Content-Type', 'text/csv; charset=utf-8')
+        .setHeader(
+          'Content-Disposition',
+          `attachment; filename="audit-logs-${Date.now()}.csv"`,
+        )
+        .send(csv);
+    } catch (error) {
+      this.logger?.error('Failed to export audit logs', error);
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: 'Failed to export audit logs',
+      });
+    }
   }
 
   /**
@@ -192,7 +206,7 @@ export class AuditController {
     @Param('userId') userId: string,
     @Query('limit') limit = 50,
   ): Promise<AuditLog[]> {
-    return this.auditService.getUserAudits(userId, limit);
+    return this.auditService.getUserActions(userId, limit);
   }
 
   /**

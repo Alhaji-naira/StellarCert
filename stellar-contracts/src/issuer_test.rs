@@ -240,8 +240,8 @@ fn test_freeze_certificate_allows_authorized_issuer() {
     let id = String::from_str(&env, "cert-freeze-authorized");
     let metadata_uri = String::from_str(&env, "ipfs://freeze-authorized");
 
-    client.initialize(&admin);
     env.mock_all_auths();
+    client.initialize(&admin);
     client.add_issuer(&issuer);
     client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
 
@@ -264,8 +264,8 @@ fn test_freeze_certificate_rejects_removed_issuer() {
     let id = String::from_str(&env, "cert-freeze-removed-issuer");
     let metadata_uri = String::from_str(&env, "ipfs://freeze-removed");
 
-    client.initialize(&admin);
     env.mock_all_auths();
+    client.initialize(&admin);
     client.add_issuer(&issuer);
     client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
 
@@ -289,8 +289,8 @@ fn test_unfreeze_certificate_rejects_removed_issuer() {
     let id = String::from_str(&env, "cert-unfreeze-removed-issuer");
     let metadata_uri = String::from_str(&env, "ipfs://unfreeze-removed");
 
-    client.initialize(&admin);
     env.mock_all_auths();
+    client.initialize(&admin);
     client.add_issuer(&issuer);
     client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
 
