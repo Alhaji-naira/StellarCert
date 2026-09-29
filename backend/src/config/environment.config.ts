@@ -130,6 +130,19 @@ class EnvironmentVariables {
   @IsString()
   REDIS_URL?: string;
 
+  // Bull Board (queue dashboard) Configuration
+  @IsOptional()
+  @IsString()
+  BULL_BOARD_ENABLED?: string;
+
+  @IsOptional()
+  @IsString()
+  BULL_BOARD_USERNAME?: string;
+
+  @IsOptional()
+  @IsString()
+  BULL_BOARD_PASSWORD?: string;
+
   // Storage Configuration
   @IsOptional()
   @IsString()
@@ -259,6 +272,9 @@ export function validateEnv(
       EMAIL_FROM: e('EMAIL_FROM'),
       SENDGRID_API_KEY: e('SENDGRID_API_KEY'),
       REDIS_URL: e('REDIS_URL'),
+      BULL_BOARD_ENABLED: e('BULL_BOARD_ENABLED'),
+      BULL_BOARD_USERNAME: e('BULL_BOARD_USERNAME'),
+      BULL_BOARD_PASSWORD: e('BULL_BOARD_PASSWORD'),
       STORAGE_ENDPOINT: e('STORAGE_ENDPOINT'),
       STORAGE_REGION: e('STORAGE_REGION'),
       STORAGE_ACCESS_KEY: e('STORAGE_ACCESS_KEY'),

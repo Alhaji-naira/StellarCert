@@ -112,7 +112,39 @@ export class AuthService {
       throw new UnauthorizedException('Invalid token type');
     }
 
-    await this.twoFactorService.validateLogin(payload.sub, token);
+    if (this.jwtManagementService?.isTokenBlacklisted) {
+      const isBlacklisted =
+        await this.jwtManagementService.isTokenBlacklisted(preAuthToken);
+      if (isBlacklisted) {
+        throw new UnauthorizedException('Invalid or expired pre-auth token');
+      }
+    }
+
+    try {
+      await this.twoFactorService.validateLogin(payload.sub, token);
+    } catch (err) {
+      if (this.jwtManagementService?.recordFailed2faAttempt) {
+        const { invalidated } =
+          await this.jwtManagementService.recordFailed2faAttempt(
+            preAuthToken,
+            3,
+          );
+        if (invalidated) {
+          throw new UnauthorizedException(
+            'Too many failed 2FA attempts. Pre-auth token has been invalidated.',
+          );
+        }
+      }
+      throw err;
+    }
+
+    // Invalidate pre-auth token so it cannot be reused
+    if (this.jwtManagementService?.blacklistToken) {
+      await this.jwtManagementService.blacklistToken(preAuthToken, 5 * 60);
+    }
+    if (this.jwtManagementService?.clear2faAttempts) {
+      await this.jwtManagementService.clear2faAttempts(preAuthToken);
+    }
 
     const user = await this.usersService.findOneById(payload.sub);
     if (!user || !user.isActive) {

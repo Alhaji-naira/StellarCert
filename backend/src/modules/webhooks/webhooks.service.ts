@@ -86,17 +86,18 @@ export class WebhooksService {
 
   // BROADCAST EVENT
   async triggerEvent(event: WebhookEvent, issuerId: string, payload: any) {
-    const subs = await this.subscriptionRepository.find({
-      where: { issuerId, isActive: true },
-    });
+    const subs = await this.subscriptionRepository
+      .createQueryBuilder('sub')
+      .where('sub.issuerId = :issuerId', { issuerId })
+      .andWhere('sub.isActive = :isActive', { isActive: true })
+      .andWhere(':event = ANY(sub.events)', { event })
+      .getMany();
 
-    const filtered = subs.filter((s) => s.events.includes(event));
-
-    for (const sub of filtered) {
+    for (const sub of subs) {
       await this.triggerEventForSubscription(sub, event, payload);
     }
 
-    this.logger.log(`Queued ${filtered.length} webhooks for ${event}`);
+    this.logger.log(`Queued ${subs.length} webhooks for ${event}`);
   }
 
   // SINGLE SUB
@@ -132,13 +133,24 @@ export class WebhooksService {
   async getLogs(
     subscriptionId: string,
     issuerId: string,
-  ): Promise<WebhookLog[]> {
+    page: number = 1,
+    limit: number = 50,
+  ): Promise<{ data: WebhookLog[]; total: number; page: number; limit: number; totalPages: number }> {
     await this.findOne(subscriptionId, issuerId);
 
-    return this.logRepository.find({
+    const [data, total] = await this.logRepository.findAndCount({
       where: { subscriptionId },
       order: { createdAt: 'DESC' },
-      take: 50,
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 }
