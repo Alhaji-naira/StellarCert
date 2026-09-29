@@ -1,20 +1,19 @@
 import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AuthProvider, useAuth } from './AuthContext';
+import {
+  AuthProvider,
+  useAuth,
+  decodeJwtPayload,
+  isTokenExpired,
+} from './AuthContext';
 import { tokenStorage, notifyTokenRefreshed } from '../api/tokens';
 import { authApi } from '../api/endpoints';
 import { User, UserRole } from '../api/types';
 
 vi.mock('../api/endpoints', () => ({
   authApi: {
-    /**
-     * By default, simulate a page load with no valid refresh-token cookie
-     * (new visitor / logged-out session) so tests start unauthenticated.
-     * Individual tests can override this with `vi.mocked(authApi.bootstrapAuth).mockResolvedValueOnce(...)`.
-     */
     bootstrapAuth: vi.fn().mockRejectedValue(new Error('No refresh cookie')),
-    // Keep the legacy alias so any remaining callers don't break.
     refresh: vi.fn().mockRejectedValue(new Error('No refresh cookie')),
   },
 }));
@@ -128,10 +127,44 @@ describe('AuthContext silent token refresh (#560)', () => {
     // Expired token must not authenticate.
     expect(screen.getByTestId('auth').textContent).toBe('false');
   });
+
+  describe('JWT base64url decoding (#787)', () => {
+    it('successfully decodes base64url payload containing - and _ without padding', () => {
+      // payload with binary/uuid data that produces - and _ in base64url
+      // {"sub":"user-123_abc","exp":2000000000}
+      // JSON base64: eyJzdWIiOiJ1c2VyLTEyM19hYmMiLCJleHAiOjIwMDAwMDAwMDB9
+      // Base64url with characters - and _:
+      const obj = { sub: 'user-xyz_123', exp: 2000000000, name: 'Alice ?' };
+      const json = JSON.stringify(obj);
+      // Construct a raw base64url string with '-' and '_'
+      const base64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const token = `header.${base64}.sig`;
+
+      const payload = decodeJwtPayload(token);
+      expect(payload).toEqual(obj);
+      expect(isTokenExpired(token)).toBe(false);
+    });
+
+    it('considers expired base64url tokens as expired', () => {
+      const obj = { sub: 'user-xyz_123', exp: 100000 };
+      const json = JSON.stringify(obj);
+      const base64url = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const token = `header.${base64url}.sig`;
+
+      expect(isTokenExpired(token)).toBe(true);
+    });
+
+    it('handles malformed tokens safely without throwing', () => {
+      expect(isTokenExpired('')).toBe(true);
+      expect(isTokenExpired('not-a-token')).toBe(true);
+      expect(isTokenExpired('header.invalid-base64-payload!!!.sig')).toBe(true);
+    });
+  });
 });
 
+
 describe('AuthContext bootstrap on page load (#960)', () => {
-  it('restores an authenticated session when bootstrapAuth returns a valid token + user', async () => {
+  it('restores an authenticated session from bootstrapAuth', async () => {
     const token = makeToken(3600);
     vi.mocked(authApi.bootstrapAuth).mockResolvedValueOnce({
       accessToken: token,
@@ -140,7 +173,6 @@ describe('AuthContext bootstrap on page load (#960)', () => {
 
     renderAuth();
 
-    // Still loading — spinner is shown, not the consumer.
     expect(screen.queryByTestId('auth')).toBeNull();
 
     await act(async () => {});
@@ -149,8 +181,7 @@ describe('AuthContext bootstrap on page load (#960)', () => {
     expect(screen.getByTestId('user').textContent).toBe('alice@example.com');
   });
 
-  it('starts unauthenticated when bootstrapAuth rejects (no refresh-token cookie)', async () => {
-    // Default mock already rejects — no override needed.
+  it('starts unauthenticated when bootstrapAuth rejects', async () => {
     renderAuth();
 
     await act(async () => {});
@@ -159,10 +190,9 @@ describe('AuthContext bootstrap on page load (#960)', () => {
     expect(screen.getByTestId('user').textContent).toBe('none');
   });
 
-  it('starts unauthenticated when bootstrapAuth returns an already-expired token', async () => {
-    const expiredToken = makeToken(-60);
+  it('rejects an already-expired bootstrap token', async () => {
     vi.mocked(authApi.bootstrapAuth).mockResolvedValueOnce({
-      accessToken: expiredToken,
+      accessToken: makeToken(-60),
       user: sampleUser,
     } as never);
 
@@ -170,7 +200,6 @@ describe('AuthContext bootstrap on page load (#960)', () => {
 
     await act(async () => {});
 
-    // Expired token must not authenticate even if the server returned it.
     expect(screen.getByTestId('auth').textContent).toBe('false');
   });
 });

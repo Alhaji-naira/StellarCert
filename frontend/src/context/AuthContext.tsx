@@ -1,12 +1,43 @@
-import React, { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, ReactNode, useCallback } from 'react';
 import { User } from '../api/types';
 import { tokenStorage, setTokenRefreshCallback } from '../api/tokens';
 import { authApi } from '../api/endpoints';
+import { useNavigate } from 'react-router-dom';
+
+// Helper function to decode JWT payload safely (handling base64url characters - and _ and missing padding)
+export const decodeJwtPayload = (token: string): any => {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    throw new Error('Invalid JWT format');
+  }
+  let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  const padLength = (4 - (base64.length % 4)) % 4;
+  base64 += '='.repeat(padLength);
+
+  let jsonStr: string;
+  try {
+    jsonStr = decodeURIComponent(
+      Array.prototype.map
+        .call(
+          atob(base64),
+          (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2),
+        )
+        .join(''),
+    );
+  } catch {
+    jsonStr = atob(base64);
+  }
+
+  return JSON.parse(jsonStr);
+};
 
 // Helper function to check if JWT token is expired
-const isTokenExpired = (token: string): boolean => {
+export const isTokenExpired = (token: string): boolean => {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
+    const payload = decodeJwtPayload(token);
+    if (!payload || typeof payload.exp !== 'number') {
+      return true;
+    }
     const currentTime = Date.now() / 1000;
     return payload.exp < currentTime;
   } catch {
@@ -21,6 +52,7 @@ interface AuthContextValue {
   isLoading: boolean;
   clearAuth: () => void;
   login: (accessToken: string, user: User) => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -38,6 +70,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [accessToken, setAccessTokenState] = useState<string | null>(() =>
     tokenStorage.getAccessToken(),
   );
+  const navigate = useNavigate();
 
   // Derive isAuthenticated once per token/user change.
   const isAuthenticated = useMemo(() => {
@@ -46,22 +79,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     /**
-     * Bootstrap the session on every full page load.
+     * Bootstrap authentication before rendering any application routes.
      *
-     * We always call `bootstrapAuth` (one POST /auth/refresh) rather than
-     * branching on whether an access token is already in memory.  The
-     * in-memory token is gone after every hard refresh, so any fast-path
-     * that skips the network call would leave `user` unpopulated and force
-     * protected routes to redirect to /login.
-     *
-     * `AuthProvider` renders a full-screen spinner while `isLoading` is true,
-     * so no route — and therefore no protected API call — can mount before
-     * this resolves.  That eliminates the page-load race that previously
-     * required the cooldown guard in `refreshTokens` (#960).
+     * The access token intentionally lives only in memory, so a full page load
+     * cannot reuse it. One explicit refresh establishes the session from the
+     * HttpOnly refresh-token cookie. AuthProvider keeps isLoading=true until
+     * this finishes, preventing protected components from issuing 401s during
+     * startup and eliminating the refresh burst/cooldown workaround.
      */
     const bootstrap = async () => {
       try {
         const response = await authApi.bootstrapAuth();
+
         if (response.accessToken && !isTokenExpired(response.accessToken)) {
           tokenStorage.setAccessToken(response.accessToken);
           setAccessTokenState(response.accessToken);
@@ -69,15 +98,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setUserState(response.user);
           }
         } else {
-          // Server returned a token but it's already expired — treat as
-          // unauthenticated so the user gets a clean login prompt.
           tokenStorage.clearTokens();
           setUserState(null);
           setAccessTokenState(null);
         }
       } catch {
-        // No valid refresh-token cookie (new visitor, logged-out user, or
-        // expired session) — start unauthenticated.
+        // No valid refresh cookie means the app starts unauthenticated.
         tokenStorage.clearTokens();
         setUserState(null);
         setAccessTokenState(null);
@@ -113,7 +139,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     return () => {
       clearInterval(interval);
-      // Drop the callback so a torn-down provider can't update stale state.
       setTokenRefreshCallback(() => {});
     };
   }, []);
@@ -132,6 +157,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     tokenStorage.clearTokens();
     setAccessTokenState(null);
   };
+
+  const logout = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } finally {
+      clearAuth();
+      navigate('/');
+    }
+  }, [navigate]);
 
   const login = (accessToken: string, nextUser: User) => {
     if (isTokenExpired(accessToken)) {
@@ -162,6 +196,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isLoading,
         clearAuth,
         login,
+        logout,
       }}
     >
       {children}

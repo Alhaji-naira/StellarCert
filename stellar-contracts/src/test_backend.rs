@@ -5,7 +5,7 @@ use crate::types::StatusTransition;
 #[test]
 fn test_initialize() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -30,7 +30,7 @@ fn test_initialize() {
 #[should_panic(expected = "Already initialized")]
 fn test_initialize_twice_fails() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -45,7 +45,7 @@ fn test_initialize_twice_fails() {
 #[test]
 fn test_add_and_remove_issuer() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -72,7 +72,7 @@ fn test_add_and_remove_issuer() {
 #[test]
 fn test_issue_certificate_success() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -111,7 +111,7 @@ fn test_issue_certificate_success() {
 #[test]
 fn test_issue_certificate_unauthorized() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -147,7 +147,7 @@ fn test_issue_certificate_unauthorized() {
 #[test]
 fn test_issue_certificate_already_exists() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -183,7 +183,7 @@ fn test_issue_certificate_already_exists() {
 #[test]
 fn test_issue_certificate_invalid_data() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -213,7 +213,7 @@ fn test_issue_certificate_invalid_data() {
 #[test]
 fn test_get_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -251,7 +251,7 @@ fn test_get_certificate() {
 #[test]
 fn test_get_certificate_not_found() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -270,7 +270,7 @@ fn test_get_certificate_not_found() {
 #[test]
 fn test_revoke_certificate_by_issuer() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -310,7 +310,7 @@ fn test_revoke_certificate_by_issuer() {
 #[test]
 fn test_revoke_certificate_by_admin() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -347,7 +347,7 @@ fn test_revoke_certificate_by_admin() {
 #[test]
 fn test_revoke_certificate_unauthorized() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -382,7 +382,7 @@ fn test_revoke_certificate_unauthorized() {
 #[test]
 fn test_verify_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -424,7 +424,7 @@ fn test_verify_certificate() {
 #[test]
 fn test_multiple_certificates() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -459,7 +459,7 @@ fn test_multiple_certificates() {
 #[test]
 fn test_verify_certificate_expiration() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -500,7 +500,7 @@ fn test_verify_certificate_expiration() {
 #[test]
 fn test_verification_history() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -540,7 +540,7 @@ fn test_verification_history() {
 #[test]
 fn test_access_control_require_admin() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -559,7 +559,7 @@ fn test_access_control_require_admin() {
 #[test]
 fn test_access_control_only_admin_functions() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -622,7 +622,7 @@ fn test_status_transition_expired_cannot_reactivate() {
 #[test]
 fn test_suspend_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -660,7 +660,7 @@ fn test_suspend_certificate() {
 #[test]
 fn test_unsuspend_certificate() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -701,7 +701,7 @@ fn test_unsuspend_certificate() {
 #[test]
 fn test_get_status() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -736,7 +736,7 @@ fn test_get_status() {
 #[test]
 fn test_fee_config() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -756,7 +756,7 @@ fn test_fee_config() {
 #[test]
 fn test_set_treasury() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -777,7 +777,7 @@ fn test_set_treasury() {
 #[test]
 fn test_set_issuance_fee() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -798,7 +798,7 @@ fn test_set_issuance_fee() {
 #[test]
 fn test_set_fee_enabled() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -822,7 +822,7 @@ fn test_set_fee_enabled() {
 #[test]
 fn test_exempt_issuer_from_fees() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
