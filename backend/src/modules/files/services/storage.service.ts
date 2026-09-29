@@ -22,9 +22,13 @@ export class StorageService implements OnModuleInit {
     private readonly logger: LoggingService,
   ) {
     this.bucket = this.configService.get<string>('STORAGE_BUCKET') ?? '';
+    // Storage is only mandatory when explicitly opted in. When the flag is
+    // absent (a fresh .env that never set STORAGE_REQUIRED) we warn at startup
+    // instead of aborting it, so a missing S3/MinIO config cannot take down
+    // the whole application.
     const storageRequiredValue = this.configService.get('STORAGE_REQUIRED');
     this.isStorageRequired =
-      storageRequiredValue !== false && storageRequiredValue !== 'false';
+      storageRequiredValue === true || storageRequiredValue === 'true';
 
     const region = this.configService.get<string>('STORAGE_REGION');
     const endpoint = this.configService.get<string>('STORAGE_ENDPOINT');

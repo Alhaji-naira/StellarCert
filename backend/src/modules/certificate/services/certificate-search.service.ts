@@ -98,7 +98,7 @@ export class CertificateSearchService {
       queryBuilder.andWhere('certificate.status = :status', { status });
     }
 
-    return queryBuilder.getMany();
+    return queryBuilder.take(1000).getMany();
   }
 
   async search(
