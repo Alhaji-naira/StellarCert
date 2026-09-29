@@ -64,4 +64,19 @@ describe("App route error handling (#744)", () => {
     expect(await screen.findByText("Something went wrong")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
+
+  it("resets error boundary on route change", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // First render a failing page
+    renderAt("/");
+
+    expect(await screen.findByText("Something went wrong")).toBeInTheDocument();
+
+    // Navigate to a different route (should reset the error boundary)
+    renderAt("/verify");
+
+    // Should now show the Verify page content instead of error
+    expect(await screen.findByText("Verify Certificate")).toBeInTheDocument();
+  });
 });

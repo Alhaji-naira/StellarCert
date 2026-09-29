@@ -1,4 +1,5 @@
-import { Component, ErrorInfo, ReactNode } from "react";
+import { Component, ErrorInfo, ReactNode, useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 
 interface Props {
   children: ReactNode;
@@ -20,7 +21,7 @@ interface State {
   message: string;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
+class ErrorBoundaryImpl extends Component<Props, State> {
   state: State = { hasError: false, message: "" };
 
   static getDerivedStateFromError(error: Error): State {
@@ -55,6 +56,22 @@ export class ErrorBoundary extends Component<Props, State> {
     }
     return this.props.children;
   }
+}
+
+export function ErrorBoundary({ children, fallback, onReset }: Props) {
+  const location = useLocation();
+  const [key, setKey] = useState(0);
+
+  // Reset error boundary when route changes
+  useEffect(() => {
+    setKey((k) => k + 1);
+  }, [location.pathname]);
+
+  return (
+    <ErrorBoundaryImpl key={key} fallback={fallback} onReset={onReset}>
+      {children}
+    </ErrorBoundaryImpl>
+  );
 }
 
 export default ErrorBoundary;
