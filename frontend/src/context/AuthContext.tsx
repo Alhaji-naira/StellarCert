@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, ReactNode, useCallback } from 'react';
 import { User } from '../api/types';
 import { tokenStorage, setTokenRefreshCallback } from '../api/tokens';
 import { authApi } from '../api/endpoints';
+import { useNavigate } from 'react-router-dom';
 
 // Helper function to decode JWT payload safely (handling base64url characters - and _ and missing padding)
 export const decodeJwtPayload = (token: string): any => {
@@ -51,6 +52,7 @@ interface AuthContextValue {
   isLoading: boolean;
   clearAuth: () => void;
   login: (accessToken: string, user: User) => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -68,6 +70,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [accessToken, setAccessTokenState] = useState<string | null>(() =>
     tokenStorage.getAccessToken(),
   );
+  const navigate = useNavigate();
 
   // Derive isAuthenticated once per token/user change.
   const isAuthenticated = useMemo(() => {
@@ -160,6 +163,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setAccessTokenState(null);
   };
 
+  const logout = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } finally {
+      clearAuth();
+      navigate('/');
+    }
+  }, [navigate]);
+
   const login = (accessToken: string, nextUser: User) => {
     if (isTokenExpired(accessToken)) {
       console.error('Attempted to login with expired token');
@@ -189,6 +201,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isLoading,
         clearAuth,
         login,
+        logout,
       }}
     >
       {children}

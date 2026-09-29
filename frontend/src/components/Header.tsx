@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
-import { Menu, User, X } from 'lucide-react';
+import { Menu, User, X, Users } from 'lucide-react';
 import NotificationDropdown from './NotificationDropdown';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../api/types';
@@ -14,7 +14,7 @@ type NavItem = {
 };
 
 export default function Header(): JSX.Element {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const isIssuerOrAdmin =
@@ -34,6 +34,11 @@ export default function Header(): JSX.Element {
 
   const closeDrawer = () => setIsDrawerOpen(false);
 
+  const handleSignOut = async () => {
+    closeDrawer();
+    await logout();
+  };
+
   const navItems: NavItem[] = [
     { label: 'Home', to: '/' },
     { label: 'Verify', to: '/verify' },
@@ -45,6 +50,9 @@ export default function Header(): JSX.Element {
     ...(isIssuerOrAdmin
       ? ([{ label: 'Certificates', to: '/certificates' }] as NavItem[])
       : []),
+    ...(user?.role === UserRole.ADMIN
+      ? ([{ label: 'Users', to: '/admin/users', icon: <Users className="h-4 w-4" />}] as NavItem[])
+      : []),
     ...(user
       ? ([
           {
@@ -55,6 +63,10 @@ export default function Header(): JSX.Element {
         ] as NavItem[])
       : []),
   ];
+
+  const authNavItem: NavItem = user
+    ? { label: 'Sign out', to: '#' }
+    : { label: 'Sign in', to: '/login' };
 
   return (
     <header className="no-print border-b border-gray-200 bg-white transition-colors duration-250 dark:border-white/10 dark:bg-slate-950/90 dark:backdrop-blur">
@@ -84,6 +96,22 @@ export default function Header(): JSX.Element {
                 {item.label}
               </NavLink>
             ))}
+            {user ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="transition-colors duration-250 hover:text-gray-900 dark:hover:text-white"
+              >
+                Sign out
+              </button>
+            ) : (
+              <NavLink
+                to="/login"
+                className="transition-colors duration-250 hover:text-gray-900 dark:hover:text-white"
+              >
+                Sign in
+              </NavLink>
+            )}
           </nav>
           <div className="h-6 w-px bg-gray-300 transition-colors duration-250 dark:bg-slate-700" />
           <NotificationDropdown />
@@ -144,6 +172,23 @@ export default function Header(): JSX.Element {
                 {item.label}
               </NavLink>
             ))}
+            {user ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="rounded-lg px-3 py-3 text-left transition-colors duration-250 hover:bg-gray-100 dark:hover:bg-white/5"
+              >
+                Sign out
+              </button>
+            ) : (
+              <NavLink
+                to="/login"
+                onClick={closeDrawer}
+                className="rounded-lg px-3 py-3 transition-colors duration-250 hover:bg-gray-100 dark:hover:bg-white/5"
+              >
+                Sign in
+              </NavLink>
+            )}
           </nav>
 
           <div className="mt-4 border-t border-gray-200 pt-4 dark:border-white/10">
