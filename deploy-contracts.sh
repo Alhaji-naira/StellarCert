@@ -29,7 +29,7 @@ echo "RPC URL: $RPC_URL"
 # Build the contracts
 echo "Building contracts..."
 cd stellar-contracts
-cargo build --target wasm32v1-none --release
+stellar contract build
 
 # Deploy certificate contract
 echo "Deploying certificate contract..."

@@ -262,7 +262,9 @@ jobs:
       # a plain host build does not produce or validate.
       - name: Install wasm target
         run: rustup target add wasm32v1-none
+      - name: Install stellar-cli
+        run: cargo install --locked stellar-cli@25.2.0
       - name: Build contracts for wasm target
-        run: cargo build --target wasm32v1-none --release
+        run: stellar contract build
       - name: Test contracts
         run: cargo test
