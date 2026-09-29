@@ -33,6 +33,7 @@ export class HealthController {
   async check() {
     try {
       return await this.health.check([
+        () => this.databaseHealth.isHealthy(),
         () => this.stellarHealth.isHealthy(),
         () => this.redisHealth.isHealthy(),
       ]);
