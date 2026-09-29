@@ -9,7 +9,7 @@ use soroban_sdk::{
 #[test]
 fn test_admin_multisig_flow() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let contract_id = env.register(AdminMultisigContract, ());
     let client = AdminMultisigContractClient::new(&env, &contract_id);
 
     let admin1 = Address::generate(&env);
@@ -80,7 +80,7 @@ fn test_other_action_panics_on_execution() {
 #[test]
 fn test_admin_multisig_instance_ttl_is_extended() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let contract_id = env.register(AdminMultisigContract, ());
     let client = AdminMultisigContractClient::new(&env, &contract_id);
 
     let admin1 = Address::generate(&env);
@@ -101,9 +101,9 @@ fn test_admin_multisig_instance_ttl_is_extended() {
 #[test]
 fn test_remove_issuer_action_executes_after_threshold() {
     let env = Env::default();
-    let admin_multisig_contract_id = env.register_contract(None, AdminMultisigContract);
+    let admin_multisig_contract_id = env.register(AdminMultisigContract, ());
     let client = AdminMultisigContractClient::new(&env, &admin_multisig_contract_id);
-    let certificate_contract_id = env.register_contract(None, CertificateContract);
+    let certificate_contract_id = env.register(CertificateContract, ());
     let certificate_client = CertificateContractClient::new(&env, &certificate_contract_id);
 
     let admin1 = Address::generate(&env);
@@ -152,7 +152,7 @@ fn test_remove_issuer_action_executes_after_threshold() {
 #[should_panic(expected = "Proposer cannot approve their own action")]
 fn test_proposer_cannot_approve() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let contract_id = env.register(AdminMultisigContract, ());
     let client = AdminMultisigContractClient::new(&env, &contract_id);
 
     let admin1 = Address::generate(&env);
@@ -174,7 +174,7 @@ fn test_proposer_cannot_approve() {
 #[test]
 fn test_cancel_proposal() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, AdminMultisigContract);
+    let contract_id = env.register(AdminMultisigContract, ());
     let client = AdminMultisigContractClient::new(&env, &contract_id);
 
     let admin1 = Address::generate(&env);

@@ -26,6 +26,7 @@ pub fn propose_certificate(
     env.storage().set(&cert_data.id, &cert_data);
 
     // Optional: Emit event
+    #[allow(deprecated)]
     env.events().publish(
         ("certificate", "proposed"),
         (issuer.clone(), cert_data.id.clone()),
@@ -33,3 +34,4 @@ pub fn propose_certificate(
 
     Ok(())
 }
+
