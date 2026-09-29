@@ -30,14 +30,14 @@
     "lint": "npm run lint:backend && npm run lint:frontend",
     "lint:backend": "cd backend && npm run lint",
     "lint:frontend": "cd frontend && npm run lint",
-    "lint:contracts": "cd stellar-contracts && cargo clippy",
+    "lint:contracts": "cd stellar-contracts && cargo clippy -- -D warnings",
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
     "typecheck:backend": "cd backend && npm run typecheck",
     "typecheck:frontend": "cd frontend && npm run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "ci:check": "npm run lint && npm run typecheck && npm run test",
     "ci:build": "npm run build && npm run build:contracts",
-    "security:audit": "npm audit && cd backend && npm audit && cd ../frontend && npm audit",
+    "security:audit": "npm audit --audit-level=high && cd backend && npm audit --audit-level=high && cd ../frontend && npm audit --audit-level=high",
     "prepare": "husky"
   },
   "devDependencies": {

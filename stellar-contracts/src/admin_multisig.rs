@@ -177,6 +177,7 @@ impl AdminMultisigContract {
         };
 
         Self::set_persistent(&env, &proposal_key, &proposal);
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("created")),
             ProposalCreatedEvent {
@@ -223,6 +224,8 @@ impl AdminMultisigContract {
 
         proposal.approvals.push_back(approver.clone());
         let approval_count = proposal.approvals.len();
+
+        #[allow(deprecated)]
 
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("approved")),
@@ -278,6 +281,8 @@ impl AdminMultisigContract {
         proposal.status = AdminProposalStatus::Cancelled;
         Self::set_persistent(&env, &proposal_key, &proposal);
 
+        #[allow(deprecated)]
+
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("canceled")),
             ProposalCanceledEvent {
@@ -287,7 +292,17 @@ impl AdminMultisigContract {
         );
     }
 
-    pub fn get_proposal(env: Env, proposal_id: String) -> AdminProposal {
+    /// Get a governance proposal.
+    ///
+    /// Proposal contents are sensitive governance data (pending upgrades, issuer
+    /// removals, config changes), so reads are restricted to registered admin
+    /// signers: the caller must authenticate and be present in the signer set.
+    pub fn get_proposal(env: Env, proposal_id: String, caller: Address) -> AdminProposal {
+        caller.require_auth();
+
+        let config = Self::get_config(env.clone());
+        Self::require_signer(&config.signers, &caller);
+
         env.storage()
             .persistent()
             .get(&AdminMultisigDataKey::AdminProposal(proposal_id))
@@ -406,6 +421,7 @@ impl AdminMultisigContract {
 
         proposal.status = AdminProposalStatus::Executed;
         Self::set_persistent(&env, &proposal_key, &proposal);
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("executed")),
             proposal_id,
@@ -450,7 +466,7 @@ mod test {
     #[should_panic(expected = "Invalid admin multisig configuration")]
     fn test_init_rejects_threshold_above_signer_count() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, AdminMultisigContract);
+        let contract_id = env.register(AdminMultisigContract, ());
         let client = AdminMultisigContractClient::new(&env, &contract_id);
 
         let signers = soroban_sdk::vec![

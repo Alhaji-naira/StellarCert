@@ -239,6 +239,7 @@ impl CertificateContract {
         Self::append_cert_id(&env, DataKey::OwnerCertIds(owner.clone()), id.clone());
 
         // Emit and publish issuance event
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("issued"), id.clone()),
             CertificateIssuedEvent { id, issuer, owner },
@@ -271,6 +272,7 @@ impl CertificateContract {
         Self::mirror_revocation_to_crl(&env, &cert.issuer, &id, &reason);
 
         // Emit and publish revocation event
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("revoked"), id.clone()),
             CertificateRevokedEvent { id, reason },
@@ -400,6 +402,7 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
         // Emit and publish suspension event
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("suspend"), id.clone()),
             CertificateSuspendedEvent { id },
@@ -423,6 +426,7 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
         // Emit and publish reinstatement event
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("reinstat"), id.clone()),
             CertificateReinstatedEvent { id },
@@ -459,6 +463,7 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
         // Emit and publish freeze event
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("frozen"), id.clone()),
             CertificateFrozenEvent { id, reason },
@@ -493,6 +498,7 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
         // Emit and publish unfreeze event
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("unfrozen"), id.clone()),
             CertificateUnfrozenEvent { id },
@@ -611,6 +617,7 @@ impl CertificateContract {
 
         // Emit a distinct reissued event so indexers can tell a reissue apart
         // from a fresh issuance and observe the parent (old) certificate link.
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("reissued"), new_id.clone()),
             CertificateReissuedEvent {
@@ -737,6 +744,7 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Transfer(transfer_id.clone()), &transfer);
 
         // Emit the transfer acceptance event
+        #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("accepted"), transfer_id.clone()),
             TransferAcceptedEvent {
@@ -824,6 +832,7 @@ impl CertificateContract {
             cert.revocation_reason = Some(reason.clone());
 
             // Emit and publish revocation event for indexers
+            #[allow(deprecated)]
             env.events().publish(
                 (symbol_short!("revoked"), transfer.certificate_id.clone()),
                 CertificateRevokedEvent {
@@ -853,6 +862,7 @@ impl CertificateContract {
         );
 
         // Emit a completion event for off-chain systems
+        #[allow(deprecated)]
         env.events().publish(
             (Symbol::new(&env, "transfer_done"), transfer_id.clone()),
             TransferCompletedEvent {
@@ -1470,6 +1480,8 @@ impl CertificateContract {
         ver.last_wasm_hash = new_wasm_hash.clone();
         Self::set_persistent(&env, &DataKey::ContractVersion, &ver);
 
+        #[allow(deprecated)]
+
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
@@ -1766,3 +1778,5 @@ impl CertificateContract {
         }
     }
 }
+
+

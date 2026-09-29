@@ -75,7 +75,7 @@ export class WebhooksController {
     @CurrentUser('id') issuerId: string,
     @Body('subscriptionId') subscriptionId: string,
   ) {
-    const subscription = await this.webhooksService.findOne(
+    const subscription = await this.webhooksService.findOneWithSecret(
       subscriptionId,
       issuerId,
     );
