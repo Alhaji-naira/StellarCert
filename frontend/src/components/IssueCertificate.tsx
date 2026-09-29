@@ -79,24 +79,6 @@ const IssueCertificate: React.FC = () => {
 
   const errorText = "mt-1 text-xs text-red-500 dark:text-red-400";
 
-  const handleConfirmIssue = async () => {
-  try {
-    const certificate =
-      await issueCertificate(payload);
-
-    toast.success(
-      'Certificate issued successfully',
-    );
-
-    navigate(
-      `/certificates/${certificate.id}`,
-    );
-  } catch (error) {
-    toast.error(
-      'Failed to issue certificate',
-    );
-  }
-};
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-start justify-center px-4 py-10 transition-colors duration-300">

@@ -39,7 +39,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     private sentryService: SentryService,
     private loggingService: LoggingService,
   ) {
-    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   catch(exception: unknown, host: ArgumentsHost) {
@@ -76,7 +77,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
       // Remove sensitive information in production
       if (this.isProduction) {
-        delete errorResponse.details;
+        if (errorResponse.errorCode !== 'VALIDATION_ERROR') {
+          delete errorResponse.details;
+        }
         delete errorResponse.stack;
       }
     }

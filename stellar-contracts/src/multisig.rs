@@ -19,7 +19,19 @@ impl MultisigCertificateContract {
         crate::persistent::extend_instance_ttl(env, None);
     }
 
+    /// Initialize the contract with a global admin. Can only be called once.
+    /// Initializes the contract admin. See `CertificateContract::initialize`
+    /// for why `require_auth` alone does not close the deploy-to-init race.
+    pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic!("Admin already initialized");
+        }
+        Self::set_instance(&env, &DataKey::Admin, &admin);
+    }
+
     /// Initialize multisig configuration for an issuer
+    #[allow(clippy::too_many_arguments)] // Soroban contract entry points cannot use struct params
     pub fn init_multisig_config(
         env: Env,
         issuer: Address,
@@ -349,7 +361,12 @@ impl MultisigCertificateContract {
         true
     }
 
-    pub fn set_certificate_contract(env: Env, admin: Address, certificate_contract: Address) {
+    pub fn set_certificate_contract(env: Env, certificate_contract: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
         admin.require_auth();
         Self::set_instance(&env, &DataKey::CertificateContract, &certificate_contract);
     }
@@ -359,6 +376,13 @@ impl MultisigCertificateContract {
             .instance()
             .get(&DataKey::CertificateContract)
             .expect("Certificate contract not configured")
+    }
+
+    pub fn get_admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized")
     }
 
     /// Get a pending request by ID

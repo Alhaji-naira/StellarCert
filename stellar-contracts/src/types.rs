@@ -56,6 +56,8 @@ pub enum DataKey {
     CertificateTransfers(String),
     PendingTransfers(Address),
     TransferCount,
+    /// Address of the CRL contract that revocations must be mirrored into.
+    CrlContract,
 }
 
 #[contracttype]
@@ -69,6 +71,15 @@ pub struct ContractVersion {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CertificateIssuedEvent {
     pub id: String,
+    pub issuer: Address,
+    pub owner: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateReissuedEvent {
+    pub id: String,
+    pub old_id: String,
     pub issuer: Address,
     pub owner: Address,
 }
@@ -253,4 +264,49 @@ pub struct CertPaginatedResult {
     pub page: u32,
     pub limit: u32,
     pub has_next: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransferInitiatedEvent {
+    pub transfer_id: u64,
+    pub certificate_id: u64,
+    pub from_owner: Address,
+    pub to_owner: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateMetadataUpdatedEvent {
+    pub certificate_id: u64,
+    pub updated_by: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateExpirySetEvent {
+    pub certificate_id: u64,
+    pub expiry: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerAddedEvent {
+    pub issuer: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerRemovedEvent {
+    pub issuer: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CertificateEvent {
+    TransferInitiated(TransferInitiatedEvent),
+    MetadataUpdated(CertificateMetadataUpdatedEvent),
+    ExpirySet(CertificateExpirySetEvent),
+    IssuerAdded(IssuerAddedEvent),
+    IssuerRemoved(IssuerRemovedEvent),
 }

@@ -23,11 +23,23 @@ pub struct AdminMultisigConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AdminProposalStatus {
+    /// Submitted and collecting approvals.
     Pending,
+    /// Threshold reached; the action is about to be (or has just been) executed.
     Approved,
+    /// The action ran successfully.
     Executed,
+    /// The proposal window closed before the threshold was reached.
     Expired,
+    /// Rejected without executing. Reserved for a proposal that is voted down
+    /// (no rejection entry point exists yet); a proposer cancellation is
+    /// recorded as `Cancelled` instead so the two are distinguishable in audit
+    /// logs and in the event stream.
     Rejected,
+    /// Withdrawn by its proposer via `cancel_proposal`. Terminal, like
+    /// `Rejected`, but deliberately a distinct status so a cancellation is
+    /// never reported as a rejection.
+    Cancelled,
 }
 
 #[contracttype]
@@ -80,6 +92,23 @@ impl AdminMultisigContract {
         crate::persistent::extend_instance_ttl(env, None);
     }
 
+    /// Persist a keyed record in persistent storage (per-id entries).
+    /// Used for AdminProposal and RemovedIssuer so instance storage stays bounded.
+    fn set_persistent<K, V>(env: &Env, key: &K, value: &V)
+    where
+        K: IntoVal<Env, Val> + Clone,
+        V: IntoVal<Env, Val>,
+    {
+        env.storage().persistent().set(key, value);
+        crate::persistent::extend_ttl(env, key, None);
+    }
+
+    /// Installs the admin signer set.
+    ///
+    /// Every proposed signer must authorize. There is no admin address to
+    /// authenticate against at this point, and a signer set is exactly the
+    /// thing being established — so consent from the whole set is the only
+    /// check that actually means anything here.
     pub fn init_admin_multisig(
         env: Env,
         threshold: u32,
@@ -87,6 +116,10 @@ impl AdminMultisigContract {
         proposal_window: u32,
     ) {
         Self::validate_config(&signers, threshold, proposal_window);
+
+        for signer in signers.iter() {
+            signer.require_auth();
+        }
 
         if env
             .storage()
@@ -126,7 +159,7 @@ impl AdminMultisigContract {
         Self::require_signer(&config.signers, &proposer);
 
         let proposal_key = AdminMultisigDataKey::AdminProposal(proposal_id.clone());
-        if env.storage().instance().has(&proposal_key) {
+        if env.storage().persistent().has(&proposal_key) {
             panic!("Proposal already exists");
         }
 
@@ -143,7 +176,7 @@ impl AdminMultisigContract {
             status: AdminProposalStatus::Pending,
         };
 
-        Self::set_instance(&env, &proposal_key, &proposal);
+        Self::set_persistent(&env, &proposal_key, &proposal);
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("created")),
             ProposalCreatedEvent {
@@ -165,7 +198,7 @@ impl AdminMultisigContract {
         let proposal_key = AdminMultisigDataKey::AdminProposal(proposal_id.clone());
         let mut proposal: AdminProposal = env
             .storage()
-            .instance()
+            .persistent()
             .get(&proposal_key)
             .expect("Proposal not found");
 
@@ -176,7 +209,7 @@ impl AdminMultisigContract {
         let current_ledger = env.ledger().sequence();
         if current_ledger > proposal.expires_at_ledger {
             proposal.status = AdminProposalStatus::Expired;
-            Self::set_instance(&env, &proposal_key, &proposal);
+            Self::set_persistent(&env, &proposal_key, &proposal);
             return AdminProposalStatus::Expired;
         }
 
@@ -207,7 +240,7 @@ impl AdminMultisigContract {
             status = AdminProposalStatus::Approved;
         }
 
-        Self::set_instance(&env, &proposal_key, &proposal);
+        Self::set_persistent(&env, &proposal_key, &proposal);
 
         if status == AdminProposalStatus::Approved {
             status = Self::execute_action(env, proposal_id);
@@ -216,13 +249,21 @@ impl AdminMultisigContract {
         status
     }
 
+    /// Withdraws a pending proposal. Only the original proposer can cancel.
+    ///
+    /// The stored status becomes [`AdminProposalStatus::Cancelled`] (and the
+    /// `proposal/canceled` event is emitted), which is intentionally distinct
+    /// from [`AdminProposalStatus::Rejected`]: off-chain audit logs and the
+    /// event stream must be able to tell a proposer cancellation apart from a
+    /// proposal that was voted down. A `Rejected` proposal never executed; a
+    /// `Cancelled` proposal was withdrawn before it could.
     pub fn cancel_proposal(env: Env, proposal_id: String, proposer: Address) {
         proposer.require_auth();
 
         let proposal_key = AdminMultisigDataKey::AdminProposal(proposal_id.clone());
         let mut proposal: AdminProposal = env
             .storage()
-            .instance()
+            .persistent()
             .get(&proposal_key)
             .expect("Proposal not found");
 
@@ -234,8 +275,8 @@ impl AdminMultisigContract {
             panic!("Proposal is not pending");
         }
 
-        proposal.status = AdminProposalStatus::Rejected;
-        Self::set_instance(&env, &proposal_key, &proposal);
+        proposal.status = AdminProposalStatus::Cancelled;
+        Self::set_persistent(&env, &proposal_key, &proposal);
 
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("canceled")),
@@ -248,14 +289,14 @@ impl AdminMultisigContract {
 
     pub fn get_proposal(env: Env, proposal_id: String) -> AdminProposal {
         env.storage()
-            .instance()
+            .persistent()
             .get(&AdminMultisigDataKey::AdminProposal(proposal_id))
             .expect("Proposal not found")
     }
 
     pub fn is_issuer_removed(env: Env, issuer: Address) -> bool {
         env.storage()
-            .instance()
+            .persistent()
             .get(&AdminMultisigDataKey::RemovedIssuer(issuer))
             .unwrap_or(false)
     }
@@ -277,7 +318,11 @@ impl AdminMultisigContract {
         Self::approve_action(env, proposal_id, approver)
     }
 
-    pub fn set_certificate_contract(env: Env, signer: Address, certificate_contract: Address) {
+    pub fn set_admin_certificate_contract(
+        env: Env,
+        signer: Address,
+        certificate_contract: Address,
+    ) {
         signer.require_auth();
 
         let config = Self::get_config(env.clone());
@@ -290,7 +335,7 @@ impl AdminMultisigContract {
         );
     }
 
-    pub fn get_certificate_contract(env: Env) -> Address {
+    pub fn get_admin_certificate_contract(env: Env) -> Address {
         env.storage()
             .instance()
             .get(&AdminMultisigDataKey::CertificateContractId)
@@ -301,7 +346,7 @@ impl AdminMultisigContract {
         let proposal_key = AdminMultisigDataKey::AdminProposal(proposal_id.clone());
         let mut proposal: AdminProposal = env
             .storage()
-            .instance()
+            .persistent()
             .get(&proposal_key)
             .expect("Proposal not found");
 
@@ -311,11 +356,20 @@ impl AdminMultisigContract {
 
         match &proposal.action {
             AdminAction::UpgradeContract(wasm_hash) => {
-                env.deployer()
-                    .update_current_contract_wasm(wasm_hash.clone());
+                let certificate_contract: Address = env
+                    .storage()
+                    .instance()
+                    .get(&AdminMultisigDataKey::CertificateContractId)
+                    .expect("Certificate contract not configured");
+
+                let _: () = env.invoke_contract(
+                    &certificate_contract,
+                    &soroban_sdk::Symbol::new(&env, "upgrade"),
+                    soroban_sdk::vec![&env, wasm_hash.clone().into_val(&env)],
+                );
             }
             AdminAction::RemoveIssuer(issuer) => {
-                Self::set_instance(
+                Self::set_persistent(
                     &env,
                     &AdminMultisigDataKey::RemovedIssuer(issuer.clone()),
                     &true,
@@ -345,11 +399,13 @@ impl AdminMultisigContract {
                     },
                 );
             }
-            AdminAction::Other(_) => {}
+            AdminAction::Other(_) => {
+                panic!("Unsupported action type");
+            }
         }
 
         proposal.status = AdminProposalStatus::Executed;
-        Self::set_instance(&env, &proposal_key, &proposal);
+        Self::set_persistent(&env, &proposal_key, &proposal);
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("executed")),
             proposal_id,
@@ -383,4 +439,27 @@ pub enum AdminMultisigDataKey {
     AdminProposal(String),
     CertificateContractId,
     RemovedIssuer(Address),
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    #[test]
+    #[should_panic(expected = "Invalid admin multisig configuration")]
+    fn test_init_rejects_threshold_above_signer_count() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, AdminMultisigContract);
+        let client = AdminMultisigContractClient::new(&env, &contract_id);
+
+        let signers = soroban_sdk::vec![
+            &env,
+            Address::generate(&env),
+            Address::generate(&env),
+            Address::generate(&env),
+        ]; // 3 signers
+
+        client.init_admin_multisig(&5u32, &signers, &100u32); // threshold 5 > 3 -> panics
+    }
 }

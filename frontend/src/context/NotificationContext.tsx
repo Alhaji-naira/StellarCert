@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { io, Socket } from 'socket.io-client';
 import { apiClient, API_URL } from '../api';
 import { tokenStorage } from '../api/tokens';
+import { useAuth } from './AuthContext';
 
 export type NotificationType = 'info' | 'success' | 'error';
 
@@ -33,7 +34,6 @@ const getSocketOrigin = (): string => {
     }
 };
 
-/* eslint-disable react-refresh/only-export-components */
 export const useNotifications = () => {
     const context = useContext(NotificationContext);
     if (!context) throw new Error('useNotifications must be used within NotificationProvider');
@@ -42,6 +42,7 @@ export const useNotifications = () => {
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
+    const { isAuthenticated } = useAuth();
     // #563 — keep socket ref so we can reconnect on token rotation
     const socketRef = useRef<Socket | null>(null);
 
@@ -75,6 +76,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
 
     useEffect(() => {
+        if (!isAuthenticated) {
+            socketRef.current?.disconnect();
+            socketRef.current = null;
+            setNotifications([]);
+            return;
+        }
+
         const token = tokenStorage.getAccessToken();
         if (!token) return;
 
@@ -82,9 +90,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         connectSocket(token);
 
         // #563 — reconnect with the new token whenever it is rotated.
-        // tokenStorage.setAccessToken writes to localStorage, so we listen for
-        // the storage event which fires in the same tab via a custom dispatch
-        // or a cross-tab write.
         const handleTokenRotation = (e: StorageEvent) => {
             if (e.key === 'accessToken' && e.newValue && e.newValue !== e.oldValue) {
                 connectSocket(e.newValue);
@@ -97,8 +102,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             window.removeEventListener('storage', handleTokenRotation);
             socketRef.current?.disconnect();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [isAuthenticated]);
 
     const markAsRead = async (id: string) => {
         try {

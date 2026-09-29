@@ -3,6 +3,7 @@ import { AuditController } from './audit.controller';
 import { AuditService } from '../services';
 import { AuditAction, AuditResourceType } from '../constants';
 import { Response } from 'express';
+import { LoggingService } from '../../../common/logging/logging.service';
 
 describe('AuditController', () => {
   let controller: AuditController;
@@ -41,6 +42,15 @@ describe('AuditController', () => {
             exportToCsv: jest.fn(),
             getUserActions: jest.fn(),
             getResourceAudits: jest.fn(),
+          },
+        },
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+            debug: jest.fn(),
           },
         },
       ],
@@ -254,10 +264,7 @@ describe('AuditController', () => {
 
       const result = await controller.getCertificateHistory('cert-123', 50);
 
-      expect(service.getResourceAudits).toHaveBeenCalledWith(
-        'cert-123',
-        50,
-      );
+      expect(service.getResourceAudits).toHaveBeenCalledWith('cert-123', 50);
       expect(result).toEqual([mockAuditLog]);
     });
 
@@ -268,10 +275,7 @@ describe('AuditController', () => {
 
       await controller.getCertificateHistory('cert-123');
 
-      expect(service.getResourceAudits).toHaveBeenCalledWith(
-        'cert-123',
-        50,
-      );
+      expect(service.getResourceAudits).toHaveBeenCalledWith('cert-123', 50);
     });
   });
 });

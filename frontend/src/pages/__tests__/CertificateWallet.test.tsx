@@ -21,8 +21,17 @@ vi.mock("../../components/QRCodeModal", () => ({
 }));
 
 // ── AuthContext mock ───────────────────────────────────────────────────────
+// The user reference must keep a STABLE identity across renders: the page's
+// useEffect depends on `user`, and returning a fresh object on every render
+// would re-run the effect (and its setState) indefinitely, masking fetch
+// errors. The holder is mutable so a test can simulate an auth-state change
+// (which legitimately triggers the user-dependent re-fetch).
+const { walletAuth } = vi.hoisted(() => ({
+  walletAuth: { user: { id: "u1" } as { id: string } },
+}));
+
 vi.mock("../../context/AuthContext", () => ({
-  useAuth: () => ({ user: { id: "u1" } }),
+  useAuth: () => ({ user: walletAuth.user }),
 }));
 
 import CertificateWallet from "../CertificateWallet";
@@ -95,8 +104,11 @@ describe("CertificateWallet", () => {
       ).toBeInTheDocument(),
     );
 
-    // Next call succeeds — re-render to trigger useEffect again
+    // Next call succeeds — changing the authenticated user changes the
+    // identity of `user`, which re-runs the page's user-dependent effect
+    // and triggers a fresh fetch.
     mockedGetUserCertificates.mockResolvedValueOnce([MOCK_CERT]);
+    walletAuth.user = { id: "u2" };
     rerender(<CertificateWallet />);
 
     await waitFor(() =>
@@ -109,4 +121,39 @@ describe("CertificateWallet", () => {
       screen.getByText(/Blockchain Fundamentals/i),
     ).toBeInTheDocument();
   });
-});
+
+  // ── Dark mode fix (#795) ────────────────────────────────────────────────
+  it("renders with correct dark mode classes", async () => {
+    mockedGetUserCertificates.mockResolvedValueOnce([MOCK_CERT]);
+
+    render(<CertificateWallet />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Blockchain Fundamentals/i)).toBeInTheDocument()
+    );
+
+    const card = screen.getByText(/Blockchain Fundamentals/i).closest('.bg-white');
+    expect(card).toHaveClass('dark:bg-gray-900');
+    
+    const title = screen.getByText(/Blockchain Fundamentals/i);
+    expect(title).toHaveClass('dark:text-white');
+
+    const statusBadge = screen.getByText('active');
+    expect(statusBadge).toHaveClass('dark:bg-green-900/30');
+    expect(statusBadge).toHaveClass('dark:text-green-400');
+  });
+
+  it("renders empty state with correct classes", async () => {
+    mockedGetUserCertificates.mockResolvedValueOnce([]);
+
+    render(<CertificateWallet />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/No Certificates Yet/i)).toBeInTheDocument()
+    );
+
+    const heading = screen.getByText(/No Certificates Yet/i);
+    expect(heading).toHaveClass('text-gray-900');
+    expect(heading).toHaveClass('dark:text-white');
+  });
+});

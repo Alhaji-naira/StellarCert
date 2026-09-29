@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
@@ -11,7 +15,8 @@ import {
 } from './entities/webhook-subscription.entity';
 import { WebhookLog } from './entities/webhook-log.entity';
 import { CreateWebhookSubscriptionDto } from './dto/create-webhook-subscription.dto';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
+import { validateWebhookUrl } from '../../common/utils/ssrf.utils';
 
 @Injectable()
 export class WebhooksService {
@@ -23,7 +28,8 @@ export class WebhooksService {
     private readonly logRepository: Repository<WebhookLog>,
 
     @InjectQueue('webhooks')
-    private readonly webhookQueue: Queue, private readonly logger: LoggingService
+    private readonly webhookQueue: Queue,
+    private readonly logger: LoggingService,
   ) {}
 
   // CREATE
@@ -31,6 +37,14 @@ export class WebhooksService {
     issuerId: string,
     dto: CreateWebhookSubscriptionDto,
   ): Promise<WebhookSubscription> {
+    // SSRF protection: validate URL resolves to a safe destination
+    const validation = await validateWebhookUrl(dto.url);
+    if (!validation.valid) {
+      throw new BadRequestException(
+        `Webhook URL is not safe: ${validation.error}`,
+      );
+    }
+
     const secret = crypto.randomBytes(32).toString('hex');
 
     const subscription = this.subscriptionRepository.create({
@@ -52,10 +66,7 @@ export class WebhooksService {
   }
 
   // FIND ONE
-  async findOne(
-    id: string,
-    issuerId: string,
-  ): Promise<WebhookSubscription> {
+  async findOne(id: string, issuerId: string): Promise<WebhookSubscription> {
     const subscription = await this.subscriptionRepository.findOne({
       where: { id, issuerId },
     });
@@ -74,22 +85,19 @@ export class WebhooksService {
   }
 
   // BROADCAST EVENT
-  async triggerEvent(
-    event: WebhookEvent,
-    issuerId: string,
-    payload: any,
-  ) {
-    const subs = await this.subscriptionRepository.find({
-      where: { issuerId, isActive: true },
-    });
+  async triggerEvent(event: WebhookEvent, issuerId: string, payload: any) {
+    const subs = await this.subscriptionRepository
+      .createQueryBuilder('sub')
+      .where('sub.issuerId = :issuerId', { issuerId })
+      .andWhere('sub.isActive = :isActive', { isActive: true })
+      .andWhere(':event = ANY(sub.events)', { event })
+      .getMany();
 
-    const filtered = subs.filter((s) => s.events.includes(event));
-
-    for (const sub of filtered) {
+    for (const sub of subs) {
       await this.triggerEventForSubscription(sub, event, payload);
     }
 
-    this.logger.log(`Queued ${filtered.length} webhooks for ${event}`);
+    this.logger.log(`Queued ${subs.length} webhooks for ${event}`);
   }
 
   // SINGLE SUB
@@ -125,13 +133,24 @@ export class WebhooksService {
   async getLogs(
     subscriptionId: string,
     issuerId: string,
-  ): Promise<WebhookLog[]> {
+    page: number = 1,
+    limit: number = 50,
+  ): Promise<{ data: WebhookLog[]; total: number; page: number; limit: number; totalPages: number }> {
     await this.findOne(subscriptionId, issuerId);
 
-    return this.logRepository.find({
+    const [data, total] = await this.logRepository.findAndCount({
       where: { subscriptionId },
       order: { createdAt: 'DESC' },
-      take: 50,
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 }

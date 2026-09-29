@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Bell, CheckCircle, AlertTriangle, Info, Save } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Bell, CheckCircle, AlertTriangle, Info, Save, X } from "lucide-react";
 import { apiClient } from "../api";
 
 interface Preferences {
@@ -25,7 +25,9 @@ export default function NotificationPreferences() {
   }, []);
 
   useEffect(() => {
-    if (!toast) return;
+    // Success is transient, but a failed save has to stay on screen until the
+    // user dismisses it — otherwise it is too easy to miss that nothing saved.
+    if (!toast || toast.type === "error") return;
 
     const timeoutId = window.setTimeout(() => setToast(null), 3000);
     return () => window.clearTimeout(timeoutId);
@@ -108,8 +110,8 @@ export default function NotificationPreferences() {
                 ? "border-green-200 bg-green-50 text-green-900 dark:border-green-900/40 dark:bg-green-900/30 dark:text-green-100"
                 : "border-red-200 bg-red-50 text-red-900 dark:border-red-900/40 dark:bg-red-900/30 dark:text-red-100"
             }`}
-            role="status"
-            aria-live="polite"
+            role={toast.type === "error" ? "alert" : "status"}
+            aria-live={toast.type === "error" ? "assertive" : "polite"}
           >
             {toast.type === "success" ? (
               <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
@@ -117,6 +119,14 @@ export default function NotificationPreferences() {
               <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
             )}
             <p className="text-sm font-medium">{toast.message}</p>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              aria-label="Dismiss notification"
+              className="-mr-1 -mt-1 flex-shrink-0 rounded p-1 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-current"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}

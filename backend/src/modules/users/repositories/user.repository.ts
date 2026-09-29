@@ -118,7 +118,7 @@ export class UserRepository {
     }
 
     // Apply sorting
-    const sortField = sort?.field || 'createdAt';
+    const sortField = this.sanitizeSortField(sort?.field);
     const sortOrder = sort?.order || 'DESC';
     queryBuilder.orderBy(`user.${sortField}`, sortOrder);
 
@@ -233,7 +233,7 @@ export class UserRepository {
   async resetLoginAttempts(id: string): Promise<void> {
     await this.repository.update(id, {
       loginAttempts: 0,
-      lockedUntil: undefined as any,
+      lockedUntil: undefined,
     });
   }
 
@@ -259,5 +259,19 @@ export class UserRepository {
       result[row.userId] = parseInt(row.count, 10);
     });
     return result;
+  }
+
+  private sanitizeSortField(field?: string): string {
+    const allowed = [
+      'createdAt',
+      'updatedAt',
+      'email',
+      'firstName',
+      'lastName',
+      'role',
+      'status',
+      'lastLoginAt',
+    ];
+    return field && allowed.includes(field) ? field : 'createdAt';
   }
 }

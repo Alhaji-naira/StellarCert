@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { MultisigService } from './multisig.service';
 import { StellarService } from '../stellar/services/stellar.service';
+import { LoggingService } from '../../common/logging/logging.service';
 
 describe('MultisigService', () => {
   let service: MultisigService;
@@ -22,6 +23,14 @@ describe('MultisigService', () => {
           provide: StellarService,
           useValue: {
             getKeypairFromPublicKey: jest.fn(),
+          },
+        },
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
           },
         },
       ],

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuditContextMiddleware } from './audit-context.middleware';
 import { RequestContextService } from '../services';
 import { Request, Response, NextFunction } from 'express';
+import { LoggingService } from '../../../common/logging/logging.service';
 
 describe('AuditContextMiddleware', () => {
   let middleware: AuditContextMiddleware;
@@ -9,7 +10,18 @@ describe('AuditContextMiddleware', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AuditContextMiddleware, RequestContextService],
+      providers: [
+        AuditContextMiddleware,
+        RequestContextService,
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+          },
+        },
+      ],
     }).compile();
 
     middleware = module.get<AuditContextMiddleware>(AuditContextMiddleware);
@@ -19,14 +31,19 @@ describe('AuditContextMiddleware', () => {
   });
 
   afterEach(() => {
-    requestContextService.clearContext();
+    if (
+      requestContextService &&
+      typeof requestContextService.clearContext === 'function'
+    ) {
+      requestContextService.clearContext();
+    }
   });
 
   describe('use', () => {
     let mockRequest: Partial<Request>;
     let mockResponse: Partial<Response>;
     let mockNext: NextFunction;
-    let listeners: { [key: string]: Array<(...args: any[]) => void> }; // More specific type
+    let listeners: { [key: string]: Array<(...args: any[]) => void> };
 
     beforeEach(() => {
       listeners = {};
@@ -46,7 +63,6 @@ describe('AuditContextMiddleware', () => {
       mockResponse = {
         setHeader: jest.fn(),
         on: jest.fn((event: string, callback: (...args: any[]) => void) => {
-          // Specific callback type
           if (!listeners[event]) {
             listeners[event] = [];
           }
@@ -108,12 +124,15 @@ describe('AuditContextMiddleware', () => {
       expect(correlationIdCall).toBeDefined();
       expect(correlationIdCall[1]).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-      ); // UUID format
+      );
     });
 
     it('should extract client ip from x-forwarded-for header', () => {
+      // The middleware reads req.headers['x-forwarded-for'] for the client IP
+      mockRequest.headers = {
+        'x-forwarded-for': '192.168.1.1, 10.0.0.1',
+      };
       (mockRequest.get as jest.Mock).mockImplementation((header: string) => {
-        if (header === 'x-forwarded-for') return '192.168.1.1, 10.0.0.1';
         if (header === 'user-agent') return 'Mozilla/5.0';
         return null;
       });
@@ -207,7 +226,6 @@ describe('AuditContextMiddleware', () => {
 
       expect(requestContextService.getContext(contextId)).toBeDefined();
 
-      // Trigger finish event
       if (listeners['finish']) {
         listeners['finish'].forEach((cb) => cb());
       }

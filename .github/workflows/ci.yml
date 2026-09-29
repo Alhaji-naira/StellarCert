@@ -20,7 +20,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       contracts: ${{ steps.filter.outputs.contracts }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -32,69 +32,78 @@ jobs:
             contracts:
               - 'stellar-contracts/**'
 
-    frontend:
-     needs: changes
-     if: needs.changes.outputs.frontend == 'true'
-     runs-on: ubuntu-latest
-     defaults:
-       run:
-         working-directory: frontend
-     steps:
-       - uses: actions/checkout@v4
-       - uses: actions/setup-node@v4
-         with:
-           node-version: 20
-           cache: npm
-           cache-dependency-path: |
-             package-lock.json
-             frontend/package-lock.json
-       - name: Install frontend dependencies
-         run: npm ci
-       - name: Check frontend environment variables
-         run: |
-           node -e "
-           const required = ['VITE_API_URL'];
-           const missing = required.filter(key => !process.env[key]);
-           if (missing.length) {
-             console.error('Missing required environment variables:', missing.join(', '));
-             process.exit(1);
-           }
-           "
-       - name: Build frontend
-         run: npm run build
+  conflict-markers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check for merge conflict markers
+        run: |
+          if git grep -nE '^(<{7}|={7}|>{7}|\|{7})( |$)' -- . ':!*.md'; then
+            echo "Merge conflict markers found"
+            exit 1
+          fi
 
-   backend:
-     needs: changes
-     if: needs.changes.outputs.backend == 'true'
-     runs-on: ubuntu-latest
-     defaults:
-       run:
-         working-directory: backend
-     steps:
-       - uses: actions/checkout@v4
-       - uses: actions/setup-node@v4
-         with:
-           node-version: 20
-           cache: npm
-           cache-dependency-path: |
-             package-lock.json
-             backend/package-lock.json
-       - name: Install backend dependencies
-         run: npm ci
-       - name: Validate backend environment
-         run: |
-           node -e "
-           const required = ['STELLAR_ISSUER_SECRET_KEY', 'STELLAR_ISSUER_PUBLIC_KEY'];
-           const missing = required.filter(key => !process.env[key]);
-           if (missing.length) {
-             console.error('Missing required environment variables:', missing.join(', '));
-             process.exit(1);
-           }
-           "
-       - name: Typecheck backend
-         run: npm run typecheck
-       - name: Build backend
-         run: npm run build
+  # Case-sensitive filesystems (Linux and every CI runner) resolve import
+  # specifiers exactly, so a casing typo that works on macOS/Windows breaks
+  # the build - or, for a `React.lazy` route, blanks the page at runtime
+  # instead of failing loudly (#744). The check is dependency-free on
+  # purpose, so it runs without the frontend install.
+  import-case:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check relative import casing
+        run: node frontend/scripts/check-import-case.mjs
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Lint frontend
+        run: npm run lint -- --max-warnings 0
+      - name: Typecheck frontend
+        run: npm run typecheck
+      - name: Build frontend
+        run: npm run build
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+      - name: Lint backend
+        run: npm run lint -- --max-warnings 0
+      - name: Typecheck backend
+        run: npm run typecheck
+      - name: Build backend
+        run: npm run build
+      - name: Test backend
+        run: npm test -- --ci
 
   contracts:
     needs: changes
@@ -104,12 +113,21 @@ jobs:
       run:
         working-directory: stellar-contracts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: stellar-contracts
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy
+        # Deny all lints except `deprecated`: the contract still uses the
+        # soroban-sdk event API (env.events().publish), whose migration to the
+        # #[contractevent] macro is tracked separately.
+        run: cargo clippy --all-targets -- -D warnings -A deprecated
       - name: Build contracts
         run: cargo build
       - name: Test contracts

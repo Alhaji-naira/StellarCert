@@ -117,11 +117,12 @@ export class CertificateStatsService {
     }));
   }
 
-  private async getTopIssuers(dateFilter: any) {
+  public async getTopIssuersData(dateFilter: any, limit: number = 10) {
     const query = this.certificateRepo
       .createQueryBuilder('cert')
       .select('cert.issuerId', 'issuerId')
-      .addSelect('issuer.name', 'issuerName')
+      .addSelect('issuer.firstName', 'firstName')
+      .addSelect('issuer.lastName', 'lastName')
       .addSelect('COUNT(*)', 'certificateCount')
       .leftJoin('cert.issuer', 'issuer');
 
@@ -134,16 +135,25 @@ export class CertificateStatsService {
 
     const topIssuersData = await query
       .groupBy('cert.issuerId')
-      .addGroupBy('issuer.name')
-      .orderBy('certificateCount', 'DESC')
-      .limit(10)
+      .addGroupBy('issuer.firstName')
+      .addGroupBy('issuer.lastName')
+      .orderBy('"certificateCount"', 'DESC')
+      .limit(limit)
       .getRawMany();
 
-    return topIssuersData.map((item) => ({
-      issuerId: item.issuerId,
-      issuerName: item.issuerName || 'Unknown',
-      certificateCount: parseInt(item.certificateCount, 10),
-    }));
+    return topIssuersData.map((item) => {
+      const issuerName =
+        [item.firstName, item.lastName].filter(Boolean).join(' ') || 'Unknown';
+      return {
+        issuerId: item.issuerId,
+        issuerName,
+        certificateCount: parseInt(item.certificateCount, 10),
+      };
+    });
+  }
+
+  private async getTopIssuers(dateFilter: any) {
+    return this.getTopIssuersData(dateFilter, 10);
   }
 
   private async getVerificationStats(dateFilter: any, issuerFilter: any) {

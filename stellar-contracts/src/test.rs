@@ -116,6 +116,32 @@ fn test_update_certificate_metadata() {
 }
 
 #[test]
+fn test_update_frozen_certificate_metadata() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-frozen-update");
+    let metadata_uri = String::from_str(&env, "ipfs://QmOriginal");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+    client.freeze_certificate(&id, &String::from_str(&env, "freeze for update"));
+
+    let new_metadata = String::from_str(&env, "ipfs://QmUpdated");
+    client.update_certificate_metadata(&id, &new_metadata);
+    
+    let cert_after = client.get_certificate(&id).expect("Certificate should exist");
+    assert_eq!(cert_after.metadata_uri, new_metadata);
+    assert_eq!(cert_after.version.minor, 1);
+}
+
+#[test]
 fn test_reissue_certificate() {
     let env = Env::default();
     let contract_id = env.register_contract(None, CertificateContract);
@@ -170,14 +196,19 @@ fn test_certificate_transfer_flow() {
     let metadata_uri = String::from_str(&env, "ipfs://QmTransfer");
 
     env.mock_all_auths();
-    
+
+    // The transfer view functions (get_transfer, get_pending_transfers_public,
+    // get_transfer_history_public) read the admin, so the contract must be
+    // initialized first.
+    client.initialize(&issuer);
+
     // Issue certificate
     client.issue_certificate(&cert_id, &issuer, &owner, &metadata_uri, &None);
-    
+
     // Verify initial owner
     let cert = client.get_certificate(&cert_id).expect("Certificate should exist");
     assert_eq!(cert.owner, owner);
-    
+
     // Initiate transfer
     client.initiate_transfer(
         &transfer_id,
@@ -188,42 +219,42 @@ fn test_certificate_transfer_flow() {
         &0u64,  // no transfer fee
         &None,  // no memo
     );
-    
+
     // Verify transfer is pending
-    let transfer = client.get_transfer(&transfer_id);
+    let transfer = client.get_transfer(&transfer_id, &owner);
     assert_eq!(transfer.status, TransferStatus::Pending);
-    
+
     // Check pending transfers for new owner
-    let pending = client.get_pending_transfers_public(&new_owner);
+    let pending = client.get_pending_transfers_public(&new_owner, &new_owner);
     assert_eq!(pending.len(), 1);
     assert_eq!(pending.get(0), Some(transfer_id.clone()));
-    
+
     // Accept transfer
     client.accept_transfer(&transfer_id, &new_owner);
-    
+
     // Verify transfer is accepted
-    let transfer_accepted = client.get_transfer(&transfer_id);
+    let transfer_accepted = client.get_transfer(&transfer_id, &new_owner);
     assert_eq!(transfer_accepted.status, TransferStatus::Accepted);
     assert!(transfer_accepted.accepted_at.is_some());
-    
+
     // Complete transfer
     client.complete_transfer(&transfer_id, &owner);
-    
+
     // Verify transfer is completed
-    let transfer_completed = client.get_transfer(&transfer_id);
+    let transfer_completed = client.get_transfer(&transfer_id, &owner);
     assert_eq!(transfer_completed.status, TransferStatus::Completed);
     assert!(transfer_completed.completed_at.is_some());
-    
+
     // Verify certificate owner changed
     let cert_updated = client.get_certificate(&cert_id).expect("Certificate should exist");
     assert_eq!(cert_updated.owner, new_owner);
     assert_eq!(cert_updated.status, CertificateStatus::Active); // Not revoked since require_revocation was false
-    
+
     // Verify transfer history
-    let history = client.get_transfer_history_public(&cert_id);
+    let history = client.get_transfer_history_public(&cert_id, &new_owner);
     assert_eq!(history.len(), 1);
     assert_eq!(history.get(0), Some(transfer_id));
-    
+
     // Verify transfer count
     assert_eq!(client.get_transfer_count_public(), 1);
 }
@@ -242,10 +273,10 @@ fn test_transfer_with_revocation() {
     let metadata_uri = String::from_str(&env, "ipfs://QmRevoke");
 
     env.mock_all_auths();
-    
+
     // Issue certificate
     client.issue_certificate(&cert_id, &issuer, &owner, &metadata_uri, &None);
-    
+
     // Initiate transfer with revocation
     client.initiate_transfer(
         &transfer_id,
@@ -256,11 +287,11 @@ fn test_transfer_with_revocation() {
         &0u64,  // no transfer fee
         &None,  // no memo
     );
-    
+
     // Accept and complete transfer
     client.accept_transfer(&transfer_id, &new_owner);
     client.complete_transfer(&transfer_id, &owner);
-    
+
     // Verify certificate is revoked and owner changed
     let cert = client.get_certificate(&cert_id).expect("Certificate should exist");
     assert_eq!(cert.owner, new_owner);
@@ -282,10 +313,13 @@ fn test_transfer_rejection() {
     let metadata_uri = String::from_str(&env, "ipfs://QmReject");
 
     env.mock_all_auths();
-    
+
+    // get_transfer reads the admin, so the contract must be initialized first.
+    client.initialize(&issuer);
+
     // Issue certificate
     client.issue_certificate(&cert_id, &issuer, &owner, &metadata_uri, &None);
-    
+
     // Initiate transfer
     client.initiate_transfer(
         &transfer_id,
@@ -296,14 +330,14 @@ fn test_transfer_rejection() {
         &0u64,
         &None,
     );
-    
+
     // Reject transfer
     client.reject_transfer(&transfer_id, &new_owner);
-    
+
     // Verify transfer is rejected
-    let transfer = client.get_transfer(&transfer_id);
+    let transfer = client.get_transfer(&transfer_id, &new_owner);
     assert_eq!(transfer.status, TransferStatus::Rejected);
-    
+
     // Verify certificate owner unchanged
     let cert = client.get_certificate(&cert_id).expect("Certificate should exist");
     assert_eq!(cert.owner, owner);
@@ -323,10 +357,13 @@ fn test_transfer_cancellation() {
     let metadata_uri = String::from_str(&env, "ipfs://QmCancel");
 
     env.mock_all_auths();
-    
+
+    // get_transfer reads the admin, so the contract must be initialized first.
+    client.initialize(&issuer);
+
     // Issue certificate
     client.issue_certificate(&cert_id, &issuer, &owner, &metadata_uri, &None);
-    
+
     // Initiate transfer
     client.initiate_transfer(
         &transfer_id,
@@ -337,14 +374,14 @@ fn test_transfer_cancellation() {
         &0u64,
         &None,
     );
-    
+
     // Cancel transfer
     client.cancel_transfer(&transfer_id, &owner);
-    
+
     // Verify transfer is cancelled
-    let transfer = client.get_transfer(&transfer_id);
+    let transfer = client.get_transfer(&transfer_id, &owner);
     assert_eq!(transfer.status, TransferStatus::Cancelled);
-    
+
     // Verify certificate owner unchanged
     let cert = client.get_certificate(&cert_id).expect("Certificate should exist");
     assert_eq!(cert.owner, owner);
@@ -365,10 +402,10 @@ fn test_cannot_transfer_non_active_certificate() {
 
     env.mock_all_auths();
     client.issue_certificate(&cert_id, &issuer, &owner, &metadata_uri, &None);
-    
+
     // Suspend the certificate
     client.suspend_certificate(&cert_id, &String::from_str(&env, "suspended"));
-    
+
     // Try to transfer suspended certificate - should fail
     // Note: In no_std environment, we can't catch panics easily
     // This would panic in actual execution
@@ -386,13 +423,13 @@ fn test_multiple_transfers() {
     let metadata_uri = String::from_str(&env, "ipfs://QmCount");
 
     env.mock_all_auths();
-    
+
     // Initial transfer count should be 0
     assert_eq!(client.get_transfer_count_public(), 0);
-    
+
     // Issue certificate
     client.issue_certificate(&cert_id, &issuer, &owner, &metadata_uri, &None);
-    
+
     // Make 3 transfers
     for i in 1..=3 {
         // Simplified: just use fixed IDs for no_std compatibility
@@ -404,7 +441,7 @@ fn test_multiple_transfers() {
             String::from_str(&env, "transfer-3")
         };
         let new_recipient = Address::generate(&env);
-        
+
         // For this test, we'll just initiate transfers to count them
         // In real scenario, you'd need to complete each transfer
         client.initiate_transfer(
@@ -417,7 +454,7 @@ fn test_multiple_transfers() {
             &None,
         );
     }
-    
+
     // Transfer count should be 3
     assert_eq!(client.get_transfer_count_public(), 3);
 }
@@ -430,19 +467,19 @@ fn test_batch_verify_with_mixed_statuses() {
 
     let issuer = Address::generate(&env);
     let owner = Address::generate(&env);
-    
+
     let active_id = String::from_str(&env, "cert-active");
     let revoked_id = String::from_str(&env, "cert-revoked");
     let suspended_id = String::from_str(&env, "cert-suspended");
     let metadata_uri = String::from_str(&env, "ipfs://QmTest");
 
     env.mock_all_auths();
-    
+
     // Issue all certificates
     client.issue_certificate(&active_id, &issuer, &owner, &metadata_uri, &None);
     client.issue_certificate(&revoked_id, &issuer, &owner, &metadata_uri, &None);
     client.issue_certificate(&suspended_id, &issuer, &owner, &metadata_uri, &None);
-    
+
     // Set different statuses
     client.revoke_certificate(&revoked_id, &String::from_str(&env, "revoked"));
     client.suspend_certificate(&suspended_id, &String::from_str(&env, "suspended"));
@@ -454,18 +491,18 @@ fn test_batch_verify_with_mixed_statuses() {
     ids.push_back(suspended_id.clone());
 
     let result = client.batch_verify_certificates(&ids);
-    
+
     assert_eq!(result.total, 3);
     assert_eq!(result.successful, 1); // Only active passes
     assert_eq!(result.failed, 2); // Revoked and suspended fail
-    
+
     // Check individual results
     let r0 = result.results.get(0).unwrap();
     assert!(!r0.revoked);
-    
+
     let r1 = result.results.get(1).unwrap();
     assert!(r1.revoked);
-    
+
     let r2 = result.results.get(2).unwrap();
     assert!(r2.revoked);
 }
@@ -482,30 +519,30 @@ fn test_certificate_version_tracking() {
     let metadata_uri = String::from_str(&env, "ipfs://QmVersion");
 
     env.mock_all_auths();
-    
+
     // Issue certificate
     client.issue_certificate(&cert_id, &issuer, &owner, &metadata_uri, &None);
-    
+
     let cert_v1 = client.get_certificate(&cert_id).unwrap();
     assert_eq!(cert_v1.version.major, 1);
     assert_eq!(cert_v1.version.minor, 0);
     assert_eq!(cert_v1.version.patch, 0);
-    
+
         let new_metadata = String::from_str(&env, "ipfs://QmVersion1");
         client.update_certificate_metadata(&cert_id, &new_metadata);
-        
+
         let cert = client.get_certificate(&cert_id).expect("Certificate should exist");
         assert_eq!(cert.version.minor, 1);
-        
+
         let new_metadata2 = String::from_str(&env, "ipfs://QmVersion2");
         client.update_certificate_metadata(&cert_id, &new_metadata2);
-        
+
         let cert2 = client.get_certificate(&cert_id).expect("Certificate should exist");
         assert_eq!(cert2.version.minor, 2);
-        
+
         let new_metadata3 = String::from_str(&env, "ipfs://QmVersion3");
         client.update_certificate_metadata(&cert_id, &new_metadata3);
-        
+
         let cert3 = client.get_certificate(&cert_id).expect("Certificate should exist");
         assert_eq!(cert3.version.minor, 3);
 }

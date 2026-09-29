@@ -16,7 +16,7 @@ const certificateData = {
 
 // ─── Tiny toast ───────────────────────────────────────────────────────────────
 
-function Toast({ message, visible }) {
+function Toast({ message, visible }: { message: string; visible: boolean }) {
   return (
     <div
       style={{
@@ -71,7 +71,7 @@ export default function CertificatePreview() {
   const [shareLoading, setShareLoading] = useState(false);
   const certRef = useRef(null);
 
-  const showToast = useCallback((message) => {
+  const showToast = useCallback((message: string) => {
     setToast({ visible: true, message });
     setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2800);
   }, []);
@@ -235,11 +235,11 @@ export default function CertificatePreview() {
             { top: 16, right: 16, rotate: 90 },
             { bottom: 16, right: 16, rotate: 180 },
             { bottom: 16, left: 16, rotate: 270 },
-          ].map((pos, i) => (
+          ].map(({ rotate, ...pos }, i) => (
             <svg
               key={i}
               width="28" height="28" viewBox="0 0 28 28"
-              style={{ position: "absolute", opacity: 0.35, transform: `rotate(${pos.rotate}deg)`, ...pos }}
+              style={{ position: "absolute", opacity: 0.35, transform: `rotate(${rotate}deg)`, ...pos }}
             >
               <path d="M2 26 L2 2 L26 2" stroke="#b8860b" strokeWidth="1.5" fill="none" strokeLinecap="round" />
               <circle cx="2" cy="2" r="2" fill="#b8860b" opacity="0.6" />

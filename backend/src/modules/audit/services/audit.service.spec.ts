@@ -5,6 +5,7 @@ import { AuditService } from './audit.service';
 import { RequestContextService } from './request-context.service';
 import { AuditLog } from '../entities';
 import { AuditAction, AuditResourceType } from '../constants';
+import { LoggingService } from '../../../common/logging/logging.service';
 
 describe('AuditService', () => {
   let service: AuditService;
@@ -37,6 +38,14 @@ describe('AuditService', () => {
       providers: [
         AuditService,
         RequestContextService,
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+          },
+        },
         {
           provide: getRepositoryToken(AuditLog),
           useValue: {

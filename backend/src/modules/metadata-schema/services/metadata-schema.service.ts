@@ -18,13 +18,14 @@ import {
   ValidationErrorDetail,
   MetadataValidationResultDto,
 } from '../dto/metadata-schema.dto';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class MetadataSchemaService {
   constructor(
     @InjectRepository(MetadataSchema)
-    private readonly schemaRepository: Repository<MetadataSchema>, private readonly logger: LoggingService
+    private readonly schemaRepository: Repository<MetadataSchema>,
+    private readonly logger: LoggingService,
   ) {}
 
   async create(dto: CreateMetadataSchemaDto): Promise<MetadataSchema> {
@@ -257,6 +258,14 @@ export class MetadataSchemaService {
               constraint: 'pattern',
             });
           }
+        }
+        if (field.enumValues && !field.enumValues.includes(value)) {
+          errors.push({
+            field: field.name,
+            message: `"${field.name}" must be one of: ${field.enumValues.join(', ')}`,
+            value,
+            constraint: 'enum',
+          });
         }
         break;
 

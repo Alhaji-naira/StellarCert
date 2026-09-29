@@ -89,9 +89,10 @@ const IssueCertificate = () => {
       return 'Issuer name must be at least 2 characters.';
     if (!formData.grade) return 'Please select a grade.';
     if (!formData.issueDate) return 'Please select an issue date.';
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    if (new Date(`${formData.issueDate}T00:00:00`) > today) return 'Issue date cannot be in the future.';
-    if (formData.expiryDate && new Date(`${formData.expiryDate}T00:00:00`) <= new Date(`${formData.issueDate}T00:00:00`))
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    if (new Date(`${formData.issueDate}T00:00:00Z`) > today) return 'Issue date cannot be in the future.';
+    if (formData.expiryDate && new Date(`${formData.expiryDate}T00:00:00Z`) <= new Date(`${formData.issueDate}T00:00:00Z`))
       return 'Expiry date must be after the issue date.';
     if (!formData.templateId) return 'Please select a template.';
     return null;
@@ -161,7 +162,7 @@ const IssueCertificate = () => {
         <form onSubmit={handleOpenPreview} className="space-y-6">
           {/* Certificate Template - single instance with loading/error guards */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="template" className="block text-sm font-medium text-gray-700 mb-1">
               <div className="flex items-center gap-2"><Layout className="w-4 h-4" />Certificate Template</div>
             </label>
             {templatesLoading ? (
@@ -171,7 +172,7 @@ const IssueCertificate = () => {
                 <XCircle className="w-4 h-4 flex-shrink-0" /><span>{templatesError}</span>
               </div>
             ) : (
-              <select value={formData.templateId} onChange={e => setFormData({ ...formData, templateId: e.target.value })}
+              <select id="template" value={formData.templateId} onChange={e => setFormData({ ...formData, templateId: e.target.value })}
                 className="w-full px-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white" required>
                 <option value="" disabled>Select a template</option>
                 {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -181,47 +182,47 @@ const IssueCertificate = () => {
 
           {/* Recipient Name - added to fix missing input (#447) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recipient Name</label>
-            <input type="text" value={formData.recipientName}
+            <label htmlFor="recipientName" className="block text-sm font-medium text-gray-700 mb-1">Recipient Name</label>
+            <input id="recipientName" type="text" value={formData.recipientName}
               onChange={e => setFormData({ ...formData, recipientName: e.target.value })}
               className="w-full px-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500" required />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recipient Email</label>
-            <input type="email" value={formData.recipientEmail}
+            <label htmlFor="recipientEmail" className="block text-sm font-medium text-gray-700 mb-1">Recipient Email</label>
+            <input id="recipientEmail" type="email" value={formData.recipientEmail}
               onChange={e => setFormData({ ...formData, recipientEmail: e.target.value })}
               className="w-full px-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Issuer Name</label>
-            <input type="text" value={formData.issuerName}
+            <label htmlFor="issuerName" className="block text-sm font-medium text-gray-700 mb-1">Issuer Name</label>
+            <input id="issuerName" type="text" value={formData.issuerName}
               onChange={e => setFormData({ ...formData, issuerName: e.target.value })}
               className="w-full px-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Course Name</label>
-            <input type="text" value={formData.courseName}
+            <label htmlFor="courseName" className="block text-sm font-medium text-gray-700 mb-1">Course Name</label>
+            <input id="courseName" type="text" value={formData.courseName}
               onChange={e => setFormData({ ...formData, courseName: e.target.value })}
               className="w-full px-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Grade / Achievement Level</label>
-            <select value={formData.grade} onChange={e => setFormData({ ...formData, grade: e.target.value })}
+            <label htmlFor="grade" className="block text-sm font-medium text-gray-700 mb-1">Grade / Achievement Level</label>
+            <select id="grade" value={formData.grade} onChange={e => setFormData({ ...formData, grade: e.target.value })}
               className="w-full px-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white" required>
               <option value="" disabled>Select a grade</option>
               {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Issue Date</label>
-            <input type="date" value={formData.issueDate}
+            <label htmlFor="issueDate" className="block text-sm font-medium text-gray-700 mb-1">Issue Date</label>
+            <input id="issueDate" type="date" value={formData.issueDate}
               onChange={e => setFormData({ ...formData, issueDate: e.target.value })}
               className="w-full px-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date (Optional)</label>
-            <input type="date" value={formData.expiryDate}
+            <label htmlFor="expiryDate" className="block text-sm font-medium text-gray-700 mb-1">Expiry Date (Optional)</label>
+            <input id="expiryDate" type="date" value={formData.expiryDate}
               onChange={e => setFormData({ ...formData, expiryDate: e.target.value })}
               className="w-full px-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500" />
           </div>

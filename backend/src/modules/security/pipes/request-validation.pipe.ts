@@ -35,7 +35,7 @@ export class RequestValidationPipe implements PipeTransform {
       );
     }
 
-    return sanitizedValue;
+    return object;
   }
 
   private toValidate(metatype: Constructor): boolean {
@@ -73,19 +73,30 @@ export class RequestValidationPipe implements PipeTransform {
     return value;
   }
 
-  private formatErrors(errors: ValidationError[]): Record<string, unknown> {
-    const formattedErrors: Record<string, unknown> = {};
+  private formatErrors(
+    errors: ValidationError[],
+  ): Array<{ field: string; constraints: Record<string, string> }> {
+    const formattedErrors: Array<{
+      field: string;
+      constraints: Record<string, string>;
+    }> = [];
 
-    errors.forEach((error) => {
-      if (error.constraints) {
-        formattedErrors[error.property] = Object.values(error.constraints).join(
-          ', ',
-        );
-      } else if (error.children && error.children.length > 0) {
-        formattedErrors[error.property] = this.formatErrors(error.children);
-      }
-    });
+    const traverse = (errs: ValidationError[], prefix = '') => {
+      errs.forEach((error) => {
+        const field = prefix ? `${prefix}.${error.property}` : error.property;
+        if (error.constraints) {
+          formattedErrors.push({
+            field,
+            constraints: error.constraints,
+          });
+        }
+        if (error.children && error.children.length > 0) {
+          traverse(error.children, field);
+        }
+      });
+    };
 
+    traverse(errors);
     return formattedErrors;
   }
 }
