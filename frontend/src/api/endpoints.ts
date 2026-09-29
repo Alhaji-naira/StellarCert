@@ -12,6 +12,7 @@ import {
   CertificateExportFilters,
   StatusDistribution,
   User,
+  AdminAnalytics,
   UserRole,
   VerificationResult,
   LoginCredentials,
@@ -29,7 +30,6 @@ import {
   ForgotPasswordRequest,
   ResetPasswordRequest,
   VerifyEmailRequest,
-  getErrorMessage,
 } from "./types";
 import { tokenStorage, notifyTokenRefreshed } from "./tokens";
 
@@ -1326,11 +1326,11 @@ export const issuerProfileApi = {
       body: formData,
     });
     if (!response.ok) {
-      const errorData: ApiError = await response.json().catch(() => ({
+      const errorData = await response.json().catch(() => ({
         message: response.statusText || "Profile picture upload failed",
         statusCode: response.status,
       }));
-      throw errorData;
+      throw new ApiError(errorData.message, errorData.statusCode, errorData.error, errorData.details);
     }
     return response.json();
   },

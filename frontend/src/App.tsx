@@ -1,6 +1,6 @@
 import { Routes, Route, useLocation } from "react-router-dom";
 import { Suspense, lazy } from "react";
-import { Shield, Award, Search, ShieldAlert, Users } from "lucide-react";
+import { Shield, Award, Search, ShieldAlert } from "lucide-react";
 import Navbar from "./components/Header";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./guard/ProtectedRoute";

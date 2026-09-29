@@ -93,7 +93,7 @@ describe('CertificateTransferService', () => {
       );
 
       expect(result).toBeDefined();
-      const code = result.confirmationCode;
+      const code = result.confirmationCode!;
       expect(code).toBeDefined();
 
       // 1. Initiator notification must NOT contain confirmationCode
@@ -146,6 +146,7 @@ describe('CertificateTransferService', () => {
       };
 
       transferRepo.findOne.mockResolvedValue(mockTransfer);
+      certRepo.findOne.mockResolvedValue(mockTransfer.certificate);
 
       const recipientUser = {
         id: 'user-recipient-99',
