@@ -16,6 +16,8 @@ export enum WebhookEvent {
   CERTIFICATE_REVOKED = 'certificate.revoked',
   CERTIFICATE_VERIFIED = 'certificate.verified',
   CERTIFICATE_EXPIRED = 'certificate.expired',
+  CERTIFICATE_FROZEN = 'certificate.frozen',
+  CERTIFICATE_UNFROZEN = 'certificate.unfrozen',
   WEBHOOK_TEST = 'webhook.test',
 }
 

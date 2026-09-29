@@ -43,6 +43,17 @@ jobs:
             exit 1
           fi
 
+  # Case-sensitive filesystems (Linux and every CI runner) resolve import
+  # specifiers exactly, so a casing typo that works on macOS/Windows breaks
+  # the build - or, for a `React.lazy` route, blanks the page at runtime
+  # instead of failing loudly (#744). The check is dependency-free on
+  # purpose, so it runs without the frontend install.
+  import-case:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check relative import casing
+        run: node frontend/scripts/check-import-case.mjs
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
