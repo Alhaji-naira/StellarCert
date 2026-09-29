@@ -56,6 +56,8 @@ pub enum DataKey {
     CertificateTransfers(String),
     PendingTransfers(Address),
     TransferCount,
+    /// Address of the CRL contract that revocations must be mirrored into.
+    CrlContract,
 }
 
 #[contracttype]
