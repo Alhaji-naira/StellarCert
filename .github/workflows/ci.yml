@@ -258,11 +258,11 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings -A deprecated
       - name: Build contracts
         run: cargo build
-      # deploy-contracts.sh ships target/wasm32-unknown-unknown/release, which
+      # deploy-contracts.sh ships target/wasm32v1-none/release, which
       # a plain host build does not produce or validate.
       - name: Install wasm target
-        run: rustup target add wasm32-unknown-unknown
+        run: rustup target add wasm32v1-none
       - name: Build contracts for wasm target
-        run: cargo build --target wasm32-unknown-unknown --release
+        run: cargo build --target wasm32v1-none --release
       - name: Test contracts
         run: cargo test

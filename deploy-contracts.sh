@@ -29,12 +29,12 @@ echo "RPC URL: $RPC_URL"
 # Build the contracts
 echo "Building contracts..."
 cd stellar-contracts
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Deploy certificate contract
 echo "Deploying certificate contract..."
 CERT_WASM_HASH=$(soroban contract deploy \
-    --wasm target/wasm32-unknown-unknown/release/certificate_revocation.wasm \
+    --wasm target/wasm32v1-none/release/certificate_revocation.wasm \
     --source "$ADMIN_SECRET" \
     --rpc-url "$RPC_URL" \
     --network-passphrase "$(soroban config network pass $NETWORK)" \
@@ -100,7 +100,7 @@ echo "Certificate contract initialized successfully!"
 # Deploy multisig contract (if needed)
 echo "Deploying multisig contract..."
 MULTISIG_WASM_HASH=$(soroban contract deploy \
-    --wasm target/wasm32-unknown-unknown/release/certificate_revocation.wasm \
+    --wasm target/wasm32v1-none/release/certificate_revocation.wasm \
     --source "$ADMIN_SECRET" \
     --rpc-url "$RPC_URL" \
     --network-passphrase "$(soroban config network pass $NETWORK)" \
@@ -118,7 +118,7 @@ echo "Multisig contract deployed with ID: $MULTISIG_CONTRACT_ID"
 # Deploy CRL contract (if needed)
 echo "Deploying CRL contract..."
 CRL_WASM_HASH=$(soroban contract deploy \
-    --wasm target/wasm32-unknown-unknown/release/certificate_revocation.wasm \
+    --wasm target/wasm32v1-none/release/certificate_revocation.wasm \
     --source "$ADMIN_SECRET" \
     --rpc-url "$RPC_URL" \
     --network-passphrase "$(soroban config network pass $NETWORK)" \
