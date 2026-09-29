@@ -48,11 +48,7 @@ fn assert_events(env: &Env, contract_id: &Address, expected: &[ExpectedEvent]) {
 ///
 /// Needed when the expected payload depends on state that can only be read
 /// through another contract call: reading it would otherwise reset the event log.
-fn assert_emitted(
-    env: &Env,
-    emitted: &[xdr::ContractEvent],
-    expected: &[ExpectedEvent],
-) {
+fn assert_emitted(env: &Env, emitted: &[xdr::ContractEvent], expected: &[ExpectedEvent]) {
     assert_eq!(
         emitted.len(),
         expected.len(),
@@ -566,7 +562,12 @@ fn crl_revocation_emits_crl_revoked_event_with_crl_head() {
 
     // Captured before the reads below, which are themselves contract calls and
     // would reset the event log.
-    let emitted = env.events().all().filter_by_contract(&contract_id).events().to_vec();
+    let emitted = env
+        .events()
+        .all()
+        .filter_by_contract(&contract_id)
+        .events()
+        .to_vec();
 
     // The payload names the CRL head as it stood *after* this revocation, so
     // `revoked_count` is 1 rather than the 0 the contract was initialized with.

@@ -4,8 +4,8 @@ extern crate std;
 
 use super::crl::*;
 use soroban_sdk::{
-    contract, contractimpl, testutils::Address as _, testutils::Events as _, Address, Env,
-    IntoVal, String, Symbol, Val,
+    contract, contractimpl, testutils::Address as _, testutils::Events as _, Address, Env, IntoVal,
+    String, Symbol, Val,
 };
 use std::string::ToString;
 
@@ -463,7 +463,10 @@ fn test_revoke_certificate_emits_revocation_added_event() {
         &env,
         &[
             ("certificate_id", cert_id.clone().into_val(&env)),
-            ("reason", (RevocationReason::KeyCompromise as u32).into_val(&env)),
+            (
+                "reason",
+                (RevocationReason::KeyCompromise as u32).into_val(&env),
+            ),
             ("revoked_by", issuer.clone().into_val(&env)),
             ("revocation_date", env.ledger().timestamp().into_val(&env)),
             ("revoked_count", crl.revoked_count.into_val(&env)),
@@ -522,12 +525,18 @@ fn test_each_revocation_emits_its_own_event_with_the_current_crl_head() {
         &env,
         &[
             ("certificate_id", second.clone().into_val(&env)),
-            ("reason", (RevocationReason::CACompromise as u32).into_val(&env)),
+            (
+                "reason",
+                (RevocationReason::CACompromise as u32).into_val(&env),
+            ),
             ("revoked_by", issuer.clone().into_val(&env)),
             ("revocation_date", env.ledger().timestamp().into_val(&env)),
             ("revoked_count", after_second.revoked_count.into_val(&env)),
             ("crl_number", after_second.crl_number.into_val(&env)),
-            ("merkle_root", after_second.merkle_root.clone().into_val(&env)),
+            (
+                "merkle_root",
+                after_second.merkle_root.clone().into_val(&env),
+            ),
             ("this_update", after_second.this_update.into_val(&env)),
             ("next_update", after_second.next_update.into_val(&env)),
         ],

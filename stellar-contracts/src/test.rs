@@ -175,8 +175,10 @@ fn test_update_frozen_certificate_metadata() {
 
     let new_metadata = String::from_str(&env, "ipfs://QmUpdated");
     client.update_certificate_metadata(&id, &new_metadata);
-    
-    let cert_after = client.get_certificate(&id).expect("Certificate should exist");
+
+    let cert_after = client
+        .get_certificate(&id)
+        .expect("Certificate should exist");
     assert_eq!(cert_after.metadata_uri, new_metadata);
     assert_eq!(cert_after.version.minor, 1);
 }
