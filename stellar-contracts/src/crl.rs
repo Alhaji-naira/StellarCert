@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, IntoVal,
+    contract, contractevent, contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal,
     String, Val, Vec,
 };
 
@@ -55,9 +55,21 @@ pub struct CRLInfo {
 /// detect a CRL that has fallen out of sync with the contract.
 ///
 /// Topics: `("crl", "revoked", <certificate_id>)`.
-#[contracttype]
+/// Topics: `("crl", "revoked", <certificate_id>)`.
+///
+/// Declared with `#[contractevent]` so the topic list and payload shape are
+/// checked at compile time and published into the contract spec. The migration
+/// is wire-compatible with the `env.events().publish(...)` call it replaces: as
+/// with the events in `types.rs`, the old call published the certificate id as
+/// the third topic *and* inside the payload, so a `#[topic]` copy of it is
+/// carried alongside the `certificate_id` that stays in the data map. Both must
+/// be set to the same value; `events_test` asserts the full wire form.
+#[contractevent(topics = ["crl", "revoked"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CRLRevocationAddedEvent {
+    /// Copy of `certificate_id` published as the third topic.
+    #[topic]
+    pub topic_certificate_id: String,
     pub certificate_id: String,
     pub reason: u32,
     pub revoked_by: Address,
@@ -241,24 +253,19 @@ impl CRLContract {
         // contract goes through `revoke_certificate_mirrored`, and both paths
         // must publish exactly the same event — an indexer must not be able to
         // tell them apart.
-        env.events().publish(
-            (
-                symbol_short!("crl"),
-                symbol_short!("revoked"),
-                certificate_id.clone(),
-            ),
-            CRLRevocationAddedEvent {
-                certificate_id: certificate_id.clone(),
-                reason: revocation_info.reason,
-                revoked_by: revocation_info.revoked_by.clone(),
-                revocation_date: revocation_info.revocation_date,
-                revoked_count: crl_info.revoked_count,
-                crl_number: crl_info.crl_number,
-                merkle_root: crl_info.merkle_root.clone(),
-                this_update: crl_info.this_update,
-                next_update: crl_info.next_update,
-            },
-        );
+        CRLRevocationAddedEvent {
+            topic_certificate_id: certificate_id.clone(),
+            certificate_id: certificate_id.clone(),
+            reason: revocation_info.reason,
+            revoked_by: revocation_info.revoked_by.clone(),
+            revocation_date: revocation_info.revocation_date,
+            revoked_count: crl_info.revoked_count,
+            crl_number: crl_info.crl_number,
+            merkle_root: crl_info.merkle_root.clone(),
+            this_update: crl_info.this_update,
+            next_update: crl_info.next_update,
+        }
+        .publish(env);
     }
 
     pub fn is_revoked(env: Env, certificate_id: String) -> bool {
