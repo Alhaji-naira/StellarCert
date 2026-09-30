@@ -77,6 +77,7 @@ export class UsersController {
 
   // ==================== Authentication Endpoints ====================
 
+  @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register a new user' })
@@ -91,6 +92,7 @@ export class UsersController {
     return this.usersService.register(createUserDto);
   }
 
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login user' })
