@@ -565,6 +565,13 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id), &cert);
     }
 
+    /// Update a certificate's metadata URI. The existing update path checks
+    /// the issuer stored on this certificate, so its owner or another issuer
+    /// cannot authorize a change. Keep the older entry point for callers.
+    pub fn update_metadata_uri(env: Env, id: String, new_metadata_uri: String) {
+        Self::update_certificate_metadata(env, id, new_metadata_uri);
+    }
+
     /// Reissue a certificate with new version (creates child certificate)
     #[allow(clippy::too_many_arguments)]
     pub fn reissue_certificate(

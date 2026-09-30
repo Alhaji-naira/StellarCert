@@ -36,12 +36,13 @@ export class AuthV1Controller {
   async login(
     @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthResponseDto> {
+  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
     const result = await this.authService.login(loginDto);
     if (!('requires2FA' in result) && result.refreshToken) {
       res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions());
     }
-    return result;
+    const { refreshToken: _, ...response } = result;
+    return response;
   }
 
   @Post('register')
@@ -52,11 +53,12 @@ export class AuthV1Controller {
   async register(
     @Body() registerDto: RegisterDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthResponseDto> {
+  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
     const result = await this.authService.register(registerDto);
     if (result.refreshToken) {
       res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions());
     }
-    return result;
+    const { refreshToken: _, ...response } = result;
+    return response;
   }
 }

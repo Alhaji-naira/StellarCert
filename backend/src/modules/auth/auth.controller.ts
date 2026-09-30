@@ -50,7 +50,7 @@ export class AuthController {
     @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<
-    AuthResponseDto & {
+    Omit<AuthResponseDto, 'refreshToken'> & {
       requires2FA?: boolean;
       preAuthToken?: string;
     }
@@ -63,7 +63,8 @@ export class AuthController {
         refreshCookieOptions(this.isProduction),
       );
     }
-    return result;
+    const { refreshToken: _, ...response } = result;
+    return response;
   }
 
   @Post('register')
@@ -73,7 +74,7 @@ export class AuthController {
   async register(
     @Body() registerDto: RegisterDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthResponseDto> {
+  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
     const result = await this.authService.register(registerDto);
     if (result.refreshToken) {
       res.cookie(
@@ -82,7 +83,8 @@ export class AuthController {
         refreshCookieOptions(this.isProduction),
       );
     }
-    return result;
+    const { refreshToken: _, ...response } = result;
+    return response;
   }
 
   @Post('logout')
@@ -104,7 +106,7 @@ export class AuthController {
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthResponseDto> {
+  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
     const refreshToken: string | undefined = req.cookies?.[REFRESH_COOKIE];
     if (!refreshToken) {
       throw new UnauthorizedException('No refresh token');
@@ -115,7 +117,8 @@ export class AuthController {
       result.refreshToken,
       refreshCookieOptions(this.isProduction),
     );
-    return result;
+    const { refreshToken: _, ...response } = result;
+    return response;
   }
 
   // ──────────────────────────── 2FA endpoints ────────────────────────────
@@ -151,7 +154,7 @@ export class AuthController {
   async verify2fa(
     @Body() dto: TwoFactorVerifyDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthResponseDto> {
+  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
     const result = await this.authService.verifyTwoFactor(
       dto.preAuthToken,
       dto.token,
@@ -163,7 +166,8 @@ export class AuthController {
         refreshCookieOptions(this.isProduction),
       );
     }
-    return result;
+    const { refreshToken: _, ...response } = result;
+    return response;
   }
 
   @Post('2fa/backup-codes/regenerate')
