@@ -1,8 +1,8 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { createTestQueryClient, renderWithProviders } from "./test/renderWithProviders";
 
 // Keep providers/chrome light so the assertions are about routing + error
 // containment only (same approach as App.routing.test.tsx).
@@ -34,12 +34,14 @@ vi.mock("./pages/Dashboard", () => ({
   },
 }));
 
+// Routed pages read server state through the query layer, so the tree needs a
+// QueryClient in place. It is created per render so a cached entry from one
+// test cannot satisfy the next.
 const renderAt = (path: string) =>
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
-  );
+  renderWithProviders(<App />, {
+    queryClient: createTestQueryClient(),
+    routerEntries: [path],
+  });
 
 afterEach(() => {
   vi.restoreAllMocks();

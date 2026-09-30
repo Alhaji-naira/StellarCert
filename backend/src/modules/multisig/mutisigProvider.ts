@@ -1,5 +1,4 @@
- 
- 
+import { Injectable } from '@nestjs/common';
 
 export enum RequestStatus {
   Pend = 0,

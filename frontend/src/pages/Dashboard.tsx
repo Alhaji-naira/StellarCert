@@ -11,13 +11,17 @@ import {
   ShieldCheck,
   Wallet,
 } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
-import { analyticsApi, certificateApi, getUserCertificates, UserRole } from "../api";
+import { useId, useMemo, useState } from "react";
+import { UserRole } from "../api";
+import {
+  useDashboardSummaryQuery,
+  useUserCertificatesQuery,
+  useVerifyCertificateMutation,
+} from "../api/queries";
 import { useAuth } from "../context/AuthContext";
 import type {
   Certificate,
   ActivityItem,
-  DashboardStats,
   IssuanceTrendPoint,
   StatusDistribution,
 } from "../api";
@@ -554,36 +558,20 @@ type VerifierLookupResult = {
 
 const RecipientDashboard = () => {
   const { user } = useAuth();
-  const [certificates, setCertificates] = useState<Certificate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) {
-      setCertificates([]);
-      setLoading(false);
-      return;
-    }
+  // Same cache entry as the wallet page, so only one of the two routes pays
+  // for this request.
+  const {
+    data: certificates = [],
+    isPending: loading,
+    isError,
+    error: loadError,
+  } = useUserCertificatesQuery(user?.id);
 
-    const loadCertificates = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await getUserCertificates(user.id);
-        setCertificates(data);
-      } catch (err) {
-        const message =
-          err && typeof err === "object" && "message" in err
-            ? String((err as { message?: string }).message)
-            : "Failed to load your certificate wallet";
-        setError(message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void loadCertificates();
-  }, [user]);
+  const error = isError
+    ? ((loadError as { message?: string } | null)?.message ??
+      "Failed to load your certificate wallet")
+    : null;
 
   const summary = useMemo(() => {
     const active = certificates.filter((cert) => cert.status === "active");
@@ -776,35 +764,30 @@ const RecipientDashboard = () => {
 
 const VerifierDashboard = () => {
   const [lookupValue, setLookupValue] = useState("");
-  const [verifying, setVerifying] = useState(false);
   const [verificationError, setVerificationError] = useState<string | null>(
     null,
   );
-  const [verificationResult, setVerificationResult] =
-    useState<VerifierLookupResult | null>(null);
+  const verifyMutation = useVerifyCertificateMutation();
+  const verificationResult = verifyMutation.data as VerifierLookupResult | undefined;
+  const verifying = verifyMutation.isPending;
 
-  const handleVerify = async () => {
+  const handleVerify = () => {
     const trimmed = lookupValue.trim();
     if (!trimmed) {
       setVerificationError("Enter a certificate ID or hash to verify.");
       return;
     }
 
-    try {
-      setVerifying(true);
-      setVerificationError(null);
-      const result = await certificateApi.verify(trimmed);
-      setVerificationResult(result as VerifierLookupResult);
-    } catch (err) {
-      const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message?: string }).message)
-          : "Verification failed. Please try again.";
-      setVerificationError(message);
-      setVerificationResult(null);
-    } finally {
-      setVerifying(false);
-    }
+    setVerificationError(null);
+    verifyMutation.mutate(trimmed, {
+      onError: (err) => {
+        setVerificationError(
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message?: string }).message)
+            : "Verification failed. Please try again.",
+        );
+      },
+    });
   };
 
   return (
@@ -995,36 +978,30 @@ const VerifierDashboard = () => {
 };
 
 const IssuerDashboard = () => {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // `dateRange` is the editor's draft; `appliedDateRange` is what the query is
+  // keyed on. Keeping them separate preserves the original behaviour where
+  // nothing is fetched until Apply is pressed — keying the query on the draft
+  // would fire a request per date edit.
   const [dateRange, setDateRange] = useState<DateRange>(createInitialDateRange);
+  const [appliedDateRange, setAppliedDateRange] = useState<DateRange>(
+    createInitialDateRange,
+  );
   const [filterDirty, setFilterDirty] = useState(false);
-  const [revokedCount, setRevokedCount] = useState(0);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const data = await analyticsApi.getDashboardSummary({
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
-        });
-        setStats(data);
-        setRevokedCount(data?.revokedCertificates ?? 0);
-      } catch (err) {
-        const message =
-          err && typeof err === "object" && "message" in err
-            ? String((err as { message?: string }).message)
-            : "Failed to load analytics";
-        setError(message);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const {
+    data: stats = null,
+    isPending,
+    isFetching,
+    isError,
+    error: loadError,
+  } = useDashboardSummaryQuery(appliedDateRange);
 
-    void load();
-  }, [dateRange]);
+  const loading = isPending || isFetching;
+  const error = isError
+    ? ((loadError as { message?: string } | null)?.message ??
+      "Failed to load analytics")
+    : null;
+  const revokedCount = stats?.revokedCertificates ?? 0;
 
   const statusDistribution: StatusDistribution = useMemo(() => {
     if (stats?.statusDistribution) {
@@ -1046,51 +1023,23 @@ const IssuerDashboard = () => {
     setFilterDirty(true);
   };
 
-  const handleApplyFilters = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await analyticsApi.getDashboardSummary({
-        startDate: dateRange.startDate,
-        endDate: dateRange.endDate,
-      });
-      setStats(data);
-      setRevokedCount(data?.revokedCertificates ?? 0);
-      setFilterDirty(false);
-    } catch (err) {
-      const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message?: string }).message)
-          : "Failed to load analytics";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+  // Apply promotes the draft to the applied range, which is what re-keys the
+  // query. The fetch, loading flag and error state all come from the query layer.
+  const handleApplyFilters = () => {
+    setAppliedDateRange((prev) =>
+      prev.startDate === dateRange.startDate &&
+      prev.endDate === dateRange.endDate
+        ? prev
+        : dateRange,
+    );
+    setFilterDirty(false);
   };
 
-  const handleResetFilters = async () => {
+  const handleResetFilters = () => {
     const initial = createInitialDateRange();
     setDateRange(initial);
+    setAppliedDateRange(initial);
     setFilterDirty(false);
-
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await analyticsApi.getDashboardSummary({
-        startDate: initial.startDate,
-        endDate: initial.endDate,
-      });
-      setStats(data);
-      setRevokedCount(data?.revokedCertificates ?? 0);
-    } catch (err) {
-      const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message?: string }).message)
-          : "Failed to load analytics";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleExportCsv = () => {

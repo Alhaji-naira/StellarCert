@@ -1,10 +1,10 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import VerifyEmail from '../VerifyEmail';
 import { authApi } from '../../api/endpoints';
 import { ApiError } from '../../api/types';
+import { createTestQueryClient, renderWithProviders } from '../../test/renderWithProviders';
 
 // Mock the authApi
 vi.mock('../../api/endpoints', () => ({
@@ -13,12 +13,14 @@ vi.mock('../../api/endpoints', () => ({
   },
 }));
 
+// Verification runs through `useVerifyEmailMutation`, so the component needs a
+// QueryClient in the tree; the mutation retry is off in the test client so a
+// rejected promise surfaces as a single attempt rather than being retried.
 const renderVerifyEmail = (token = 'valid-token') => {
-  return render(
-    <MemoryRouter initialEntries={[`/verify-email?token=${token}`]}>
-      <VerifyEmail />
-    </MemoryRouter>,
-  );
+  return renderWithProviders(<VerifyEmail />, {
+    queryClient: createTestQueryClient(),
+    routerEntries: [`/verify-email?token=${token}`],
+  });
 };
 
 describe('VerifyEmail error handling (#996)', () => {

@@ -97,7 +97,7 @@ fn test_approve_request_success() {
     );
 
     // Check the request status
-    let request = client.get_pending_request(&request_id);
+    let request = client.get_pending_request(&request_id, &issuer);
     assert_eq!(request.status, RequestStatus::Approved);
     assert_eq!(request.approvals.len(), 2);
 }
@@ -134,7 +134,7 @@ fn test_reject_request() {
         result.final_status,
         OptionalRequestStatus::Some(RequestStatus::Pending)
     );
-    let request = client.get_pending_request(&request_id);
+    let request = client.get_pending_request(&request_id, &issuer);
     assert_eq!(request.rejection_reason, Some(rejection_reason));
 
     // Approve by another signer
@@ -154,7 +154,7 @@ fn test_reject_request() {
     );
 
     // Check the request status
-    let request = client.get_pending_request(&request_id);
+    let request = client.get_pending_request(&request_id, &issuer);
     assert_eq!(request.status, RequestStatus::Approved);
     assert_eq!(request.approvals.len(), 2);
     assert_eq!(request.rejections.len(), 1);
@@ -193,7 +193,7 @@ fn test_reject_request_impossible_approval() {
     );
 
     // Check the request status
-    let request = client.get_pending_request(&request_id);
+    let request = client.get_pending_request(&request_id, &issuer);
     assert_eq!(request.status, RequestStatus::Rejected);
     assert_eq!(request.rejections.len(), 1);
     assert_eq!(request.approvals.len(), 0);
@@ -240,7 +240,7 @@ fn test_issue_approved_certificate() {
     assert!(success);
 
     // Check the request status
-    let request = client.get_pending_request(&request_id);
+    let request = client.get_pending_request(&request_id, &issuer);
     assert_eq!(request.status, RequestStatus::Issued);
 
     // Verify the certificate was minted in CertificateContract
@@ -275,7 +275,7 @@ fn test_cancel_request() {
     assert!(success);
 
     // Check the request status
-    let request = client.get_pending_request(&request_id);
+    let request = client.get_pending_request(&request_id, &issuer);
     assert_eq!(request.status, RequestStatus::Cancelled);
 }
 
@@ -684,4 +684,118 @@ fn test_certificate_contract_propose_certificate_rejects_duplicate_request_id() 
 
     client.propose_certificate(&request_id, &issuer, &recipient, &metadata, &7);
     client.propose_certificate(&request_id, &issuer, &recipient, &metadata, &7);
+}
+
+// ── #1026: propose_certificate and get_pending_request access control ───────
+
+/// Builds a multisig contract with one configured issuer and two signers.
+fn setup_multisig(
+    env: &Env,
+) -> (
+    MultisigCertificateContractClient<'_>,
+    Address,
+    Address,
+    Address,
+) {
+    let contract_id = env.register_contract(None, MultisigCertificateContract);
+    let client = MultisigCertificateContractClient::new(env, &contract_id);
+
+    let admin = Address::generate(env);
+    let issuer = Address::generate(env);
+    let signer1 = Address::generate(env);
+    let signer2 = Address::generate(env);
+    let signers = vec![env, signer1.clone(), signer2.clone()];
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.init_multisig_config(&issuer, &2, &signers, &5, &admin);
+
+    (client, issuer, signer1, admin)
+}
+
+#[test]
+#[should_panic(expected = "Issuer is not authorized")]
+fn test_propose_certificate_rejects_unknown_issuer() {
+    let env = Env::default();
+    let (client, _issuer, _signer, _admin) = setup_multisig(&env);
+
+    // An address with no multisig configuration is not an issuer this
+    // contract recognises, and must not be able to raise requests.
+    let stranger = Address::generate(&env);
+    client.propose_certificate(
+        &String::from_str(&env, "req-unknown"),
+        &stranger,
+        &Address::generate(&env),
+        &String::from_str(&env, "ipfs://meta"),
+        &30u32,
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_propose_certificate_requires_issuer_auth() {
+    // No mock_all_auths for the proposal itself: previously anyone could
+    // raise requests in an issuer's name and spam every signer's request
+    // list. propose_certificate now requires the issuer's signature.
+    let env = Env::default();
+    let (client, issuer, _signer, _admin) = setup_multisig(&env);
+
+    env.set_auths(&[]);
+    client.propose_certificate(
+        &String::from_str(&env, "req-unauthorized"),
+        &issuer,
+        &Address::generate(&env),
+        &String::from_str(&env, "ipfs://meta"),
+        &30u32,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Not authorized to view this request")]
+fn test_get_pending_request_rejects_unrelated_caller() {
+    let env = Env::default();
+    let (client, issuer, _signer, _admin) = setup_multisig(&env);
+
+    let request_id = String::from_str(&env, "req-private");
+    client.propose_certificate(
+        &request_id,
+        &issuer,
+        &Address::generate(&env),
+        &String::from_str(&env, "ipfs://meta"),
+        &30u32,
+    );
+
+    // Requests carry recipient addresses and metadata. Before this change the
+    // reader was world-readable, so anyone could enumerate them.
+    let stranger = Address::generate(&env);
+    client.get_pending_request(&request_id, &stranger);
+}
+
+#[test]
+fn test_get_pending_request_allows_issuer_signer_and_admin() {
+    let env = Env::default();
+    let (client, issuer, signer1, admin) = setup_multisig(&env);
+
+    let request_id = String::from_str(&env, "req-visible");
+    client.propose_certificate(
+        &request_id,
+        &issuer,
+        &Address::generate(&env),
+        &String::from_str(&env, "ipfs://meta"),
+        &30u32,
+    );
+
+    // Each authorized role can read it.
+    assert_eq!(
+        client.get_pending_request(&request_id, &issuer).id,
+        request_id
+    );
+    assert_eq!(
+        client.get_pending_request(&request_id, &signer1).id,
+        request_id
+    );
+    assert_eq!(
+        client.get_pending_request(&request_id, &admin).id,
+        request_id
+    );
 }
