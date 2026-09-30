@@ -16,7 +16,6 @@ where
     let ttl_duration = ttl.unwrap_or(DEFAULT_TTL).min(env.storage().max_ttl());
     env.storage()
         .persistent()
-        // SDK requires two arguments: threshold and extend_to
         .extend_ttl(key, ttl_duration, ttl_duration);
 }
 
@@ -38,6 +37,5 @@ pub fn extend_instance_ttl(env: &Env, ttl: Option<u32>) {
     let ttl_duration = ttl.unwrap_or(DEFAULT_TTL).min(env.storage().max_ttl());
     env.storage()
         .instance()
-        // SDK requires two arguments: threshold and extend_to
         .extend_ttl(ttl_duration, ttl_duration);
 }

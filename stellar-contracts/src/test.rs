@@ -156,6 +156,57 @@ fn test_update_certificate_metadata() {
 }
 
 #[test]
+fn test_update_metadata_uri_requires_original_issuer_and_preserves_certificate() {
+    let env = Env::default();
+    let contract_id = env.register(CertificateContract, ());
+    let client = CertificateContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-uri-update");
+    let original_uri = String::from_str(&env, "ipfs://original");
+    let migrated_uri = String::from_str(&env, "ipfs://migrated");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &original_uri, &None);
+
+    client.update_metadata_uri(&id, &migrated_uri);
+    let auths = env.auths();
+    assert_eq!(auths.len(), 1);
+    assert_eq!(auths[0].0, issuer);
+
+    let cert = client.get_certificate(&id).unwrap();
+    assert_eq!(cert.metadata_uri, migrated_uri);
+    assert_eq!(cert.issuer, issuer);
+    assert_eq!(cert.owner, owner);
+    assert_eq!(cert.version.minor, 1);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_update_metadata_uri_rejects_missing_issuer_signature() {
+    let env = Env::default();
+    let contract_id = env.register(CertificateContract, ());
+    let client = CertificateContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-uri-unauthorized");
+    let original_uri = String::from_str(&env, "ipfs://original");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &original_uri, &None);
+
+    // No authorization for the stored issuer, even if the caller knows the ID.
+    env.set_auths(&[]);
+    client.update_metadata_uri(&id, &String::from_str(&env, "ipfs://unauthorized"));
+}
+
+#[test]
 fn test_update_frozen_certificate_metadata() {
     let env = Env::default();
     let contract_id = env.register_contract(None, CertificateContract);
@@ -175,10 +226,8 @@ fn test_update_frozen_certificate_metadata() {
 
     let new_metadata = String::from_str(&env, "ipfs://QmUpdated");
     client.update_certificate_metadata(&id, &new_metadata);
-
-    let cert_after = client
-        .get_certificate(&id)
-        .expect("Certificate should exist");
+    
+    let cert_after = client.get_certificate(&id).expect("Certificate should exist");
     assert_eq!(cert_after.metadata_uri, new_metadata);
     assert_eq!(cert_after.version.minor, 1);
 }

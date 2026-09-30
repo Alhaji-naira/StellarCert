@@ -192,7 +192,7 @@ cp .env.example .env
 npm install 4. Setup Stellar (Optional - for contract deployment)
 bash
 cd ../stellar-contracts
-rustup target add wasm32v1-none
+rustup target add wasm32-unknown-unknown
 cargo install --locked soroban-cli
 🏃‍♂️ Running the Application
 Development Mode
