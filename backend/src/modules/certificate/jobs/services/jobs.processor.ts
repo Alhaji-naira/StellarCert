@@ -1,7 +1,7 @@
 import { Processor, Process } from '@nestjs/bull';
 import type { Job } from 'bull';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { Certificate } from '../../entities/certificate.entity';
 import { CertificateStatus } from '../../constants/certificate-status.enum';
 import { WebhooksService } from '../../../webhooks/webhooks.service';
@@ -59,16 +59,25 @@ export class JobsProcessor {
       : undefined;
 
     const now = new Date();
-    const query = this.certificateRepository
+    let query = this.certificateRepository
       .createQueryBuilder('certificate')
-      .where('certificate.status = :status', { status: 'active' })
-      .andWhere('certificate.expiresAt <= :now', { now });
+      .where('certificate.status = :status', { status: 'active' });
 
+    // The sequence-threshold alternative must be grouped with the expiry
+    // condition (not or-joined at the top level), otherwise every certificate
+    // matching the sequence condition — including REVOKED and FROZEN ones —
+    // would be selected and marked EXPIRED regardless of its status.
     if (sequenceThreshold) {
-      query.orWhere(
-        "(certificate.metadata->>'stellarSequence')::bigint <= :sequenceThreshold",
-        { sequenceThreshold },
+      query = query.andWhere(
+        new Brackets((qb) => {
+          qb.where('certificate.expiresAt <= :now', { now }).orWhere(
+            "(certificate.metadata->>'stellarSequence')::bigint <= :sequenceThreshold",
+            { sequenceThreshold },
+          );
+        }),
       );
+    } else {
+      query = query.andWhere('certificate.expiresAt <= :now', { now });
     }
 
     if (expiryWindowDays > 0) {
