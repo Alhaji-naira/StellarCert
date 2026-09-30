@@ -12,6 +12,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { UserFilterDto } from './dto/pagination.dto';
 import { UpdateUserRoleDto, UpdateUserStatusDto } from './dto/admin-user.dto';
 import { StorageService } from '../files/services/storage.service';
+import { PUBLIC_KEY } from 'src/common/decorators/public.decorator';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -125,6 +126,22 @@ describe('UsersController', () => {
     expect(wildcardIndex).toBeGreaterThanOrEqual(0);
     expect(statsIndex).toBeLessThan(wildcardIndex);
     expect(activityIndex).toBeLessThan(wildcardIndex);
+  });
+
+  describe('Public route metadata', () => {
+    const reflector = new Reflector();
+
+    it.each(['register', 'login'])(
+      'should mark %s as public so the global JwtAuthGuard allows anonymous access',
+      (methodName) => {
+        const handler = (
+          UsersController.prototype as unknown as Record<string, unknown>
+        )[methodName];
+
+        expect(typeof handler).toBe('function');
+        expect(reflector.get<boolean>(PUBLIC_KEY, handler as never)).toBe(true);
+      },
+    );
   });
 
   describe('Authentication Endpoints', () => {

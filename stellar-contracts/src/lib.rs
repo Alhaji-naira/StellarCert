@@ -1,7 +1,5 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contractimpl, symbol_short, Address, BytesN, Env, IntoVal, String, Symbol, Val, Vec,
-};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, IntoVal, String, Symbol, Val, Vec};
 
 mod types;
 // Explicit re-exports replace `pub use types::*` to avoid ambiguous_glob_reexports
@@ -9,11 +7,14 @@ pub use types::{
     CertPaginatedResult, Certificate, CertificateFrozenEvent, CertificateIssuedEvent,
     CertificateReinstatedEvent, CertificateReissuedEvent, CertificateRevokedEvent,
     CertificateStatus, CertificateSuspendedEvent, CertificateTransfer, CertificateUnfrozenEvent,
-    CertificateVersion, ContractVersion, DataKey, MultisigConfig, OptionalCertificateStatus,
-    OptionalRequestStatus, PaginatedResult, Pagination, PendingRequest, RequestStatus,
-    SignatureResult, TransferAcceptedEvent, TransferCompletedEvent, TransferHistoryEntry,
-    TransferStatus, VerificationReport, VerificationResult,
+    CertificateVersion, ContractVersion, DataKey, MultisigConfig, OptionalRequestStatus,
+    PaginatedResult, Pagination, PendingRequest, RequestStatus, SignatureResult,
+    TransferAcceptedEvent, TransferCompletedEvent, TransferHistoryEntry, TransferStatus,
+    VerificationReport, VerificationResult,
 };
+
+// mod metadata;
+// pub use metadata::*;
 
 mod multisig;
 // MultisigCertificateContract is the only public item in multisig.rs
@@ -21,7 +22,10 @@ pub use multisig::MultisigCertificateContract;
 
 mod crl;
 // Explicit re-exports replace `pub use crl::*`
-pub use crl::{CRLContract, CRLInfo, RevocationInfo, RevocationReason};
+pub use crl::{
+    CRLContract, CRLContractClient, CRLInfo, CRLRevocationAddedEvent, RevocationInfo,
+    RevocationReason,
+};
 
 pub mod persistent;
 
@@ -30,21 +34,37 @@ mod admin_multisig;
 pub use admin_multisig::{
     AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigContractClient,
     AdminMultisigDataKey, AdminProposal, AdminProposalStatus, ProposalApprovedEvent,
-    ProposalCanceledEvent, ProposalCreatedEvent,
+    ProposalCanceledEvent, ProposalCreatedEvent, ProposalExecutedEvent,
 };
 
 #[cfg(test)]
 mod admin_multisig_test;
 #[cfg(test)]
+mod comprehensive_tests;
+#[cfg(test)]
 mod crl_test;
+#[cfg(test)]
+mod events_test;
 #[cfg(test)]
 mod issuer_management_test;
 #[cfg(test)]
 mod issuer_test;
+// metadata_test is deliberately NOT wired in: it exercises `mod metadata`,
+// which is itself commented out above and does not currently compile (32
+// errors). Wiring the test would mean first repairing that module, which is
+// a separate piece of work. See #1023.
+// #[cfg(test)]
+// mod metadata_test;
 #[cfg(test)]
 mod multisig_test;
 #[cfg(test)]
+mod revoke_sync_test;
+#[cfg(test)]
+mod status_test;
+#[cfg(test)]
 mod test;
+#[cfg(test)]
+mod transfer_security_test;
 
 #[contract]
 pub struct CertificateContract;
@@ -61,11 +81,28 @@ impl CertificateContract {
     }
 
     /// Initialize the contract with an admin account
+    /// Initializes the contract admin.
+    ///
+    /// `require_auth` stops a third party initializing on someone else's
+    /// behalf. It does **not** close the deploy-to-init race on its own: an
+    /// attacker can still authorize their *own* address and claim admin
+    /// first. Closing that needs `__constructor`, which is a breaking change
+    /// to every contract registration — see the PR discussion.
     pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
         if env.storage().persistent().has(&DataKey::Admin) {
             panic!("Admin already initialized");
         }
         Self::set_persistent(&env, &DataKey::Admin, &admin);
+    }
+
+    /// Returns the stored admin, if the contract has been initialized.
+    ///
+    /// Added so a deployment can verify the admin it intended is the admin
+    /// that was actually stored — the check `deploy-contracts.sh` performs
+    /// to detect a lost initialize race (#1022).
+    pub fn get_admin(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::Admin)
     }
 
     pub fn add_issuer(env: Env, issuer: Address) {
@@ -217,13 +254,22 @@ impl CertificateContract {
         Self::append_cert_id(&env, DataKey::OwnerCertIds(owner.clone()), id.clone());
 
         // Emit and publish issuance event
-        env.events().publish(
-            (symbol_short!("issued"), id.clone()),
-            CertificateIssuedEvent { id, issuer, owner },
-        );
+        CertificateIssuedEvent {
+            topic_id: id.clone(),
+            id,
+            issuer,
+            owner,
+        }
+        .publish(&env);
     }
 
-    /// Revoke an existing certificate (only the original issuer can revoke)
+    /// Revoke an existing certificate (only the original issuer can revoke).
+    ///
+    /// When a CRL contract has been configured with [`Self::set_crl_contract`],
+    /// the revocation is mirrored into the CRL in the same transaction so the
+    /// two ledgers can never disagree. If the CRL call fails the whole
+    /// revocation reverts, instead of leaving a certificate that is revoked in
+    /// the main contract but still passes CRL checks.
     pub fn revoke_certificate(env: Env, id: String, reason: String) {
         let mut cert: Certificate = env
             .storage()
@@ -240,11 +286,110 @@ impl CertificateContract {
         cert.revocation_reason = Some(reason.clone());
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
+        Self::mirror_revocation_to_crl(&env, &cert.issuer, &id, &reason);
+
         // Emit and publish revocation event
-        env.events().publish(
-            (symbol_short!("revoked"), id.clone()),
-            CertificateRevokedEvent { id, reason },
+        CertificateRevokedEvent {
+            topic_id: id.clone(),
+            id,
+            reason,
+        }
+        .publish(&env);
+    }
+
+    /// Configure the CRL contract that revocations must be mirrored into.
+    /// Admin-only.
+    pub fn set_crl_contract(env: Env, crl_contract: Address) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+        admin.require_auth();
+
+        Self::set_persistent(&env, &DataKey::CrlContract, &crl_contract);
+    }
+
+    /// Address of the CRL contract configured for this contract, if any.
+    pub fn get_crl_contract(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::CrlContract)
+    }
+
+    /// Mirror a revocation into the configured CRL contract.
+    ///
+    /// A no-op when no CRL contract has been configured, so deployments that
+    /// intentionally manage the CRL out-of-band keep working unchanged.
+    fn mirror_revocation_to_crl(env: &Env, issuer: &Address, id: &String, reason: &String) {
+        let crl_contract: Address = match env.storage().persistent().get(&DataKey::CrlContract) {
+            Some(address) => address,
+            None => return,
+        };
+
+        let reason_code = Self::map_revocation_reason(reason);
+        // `revoke_certificate_mirrored` authenticates this contract instead of
+        // the issuer: the CRL cannot call back into `certificate_exists` while
+        // we are on the stack, so the redundant existence check is skipped.
+        env.invoke_contract::<()>(
+            &crl_contract,
+            &Symbol::new(env, "revoke_certificate_mirrored"),
+            soroban_sdk::vec![
+                env,
+                issuer.clone().into_val(env),
+                id.clone().into_val(env),
+                reason_code.into_val(env),
+                Option::<String>::None.into_val(env),
+            ],
         );
+    }
+
+    /// Map the free-form revocation reason kept on a certificate onto the CRL's
+    /// fixed reason codes. Matching ignores case and separators, so
+    /// "Key Compromise", "key_compromise" and "KeyCompromise" all agree;
+    /// anything unrecognised falls back to `Unspecified`.
+    fn map_revocation_reason(reason: &String) -> RevocationReason {
+        fn is(normalised: &[u8], candidate: &[u8]) -> bool {
+            normalised.len() == candidate.len() && normalised == candidate
+        }
+
+        let len = reason.len() as usize;
+        let mut raw = [0u8; 64];
+        if len == 0 || len > raw.len() {
+            return RevocationReason::Unspecified;
+        }
+        reason.copy_into_slice(&mut raw[..len]);
+
+        let mut normalised = [0u8; 64];
+        let mut n = 0usize;
+        let mut i = 0usize;
+        while i < len {
+            let byte = raw[i];
+            if byte != b' ' && byte != b'_' && byte != b'-' {
+                normalised[n] = byte.to_ascii_lowercase();
+                n += 1;
+            }
+            i += 1;
+        }
+        let normalised = &normalised[..n];
+
+        if is(normalised, b"keycompromise") {
+            RevocationReason::KeyCompromise
+        } else if is(normalised, b"cacompromise") {
+            RevocationReason::CACompromise
+        } else if is(normalised, b"affiliationchanged") {
+            RevocationReason::AffiliationChanged
+        } else if is(normalised, b"superseded") {
+            RevocationReason::Superseded
+        } else if is(normalised, b"cessationofoperation") {
+            RevocationReason::CessationOfOperation
+        } else if is(normalised, b"certificatehold") {
+            RevocationReason::CertificateHold
+        } else if is(normalised, b"privilegewithdrawn") {
+            RevocationReason::PrivilegeWithdrawn
+        } else if is(normalised, b"aacompromise") {
+            RevocationReason::AACompromise
+        } else {
+            RevocationReason::Unspecified
+        }
     }
 
     /// Check if a certificate exists
@@ -275,10 +420,11 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
         // Emit and publish suspension event
-        env.events().publish(
-            (symbol_short!("suspend"), id.clone()),
-            CertificateSuspendedEvent { id },
-        );
+        CertificateSuspendedEvent {
+            topic_id: id.clone(),
+            id,
+        }
+        .publish(&env);
     }
 
     /// Reinstate a suspended certificate
@@ -298,10 +444,11 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
         // Emit and publish reinstatement event
-        env.events().publish(
-            (symbol_short!("reinstat"), id.clone()),
-            CertificateReinstatedEvent { id },
-        );
+        CertificateReinstatedEvent {
+            topic_id: id.clone(),
+            id,
+        }
+        .publish(&env);
     }
 
     /// Freeze a certificate
@@ -313,6 +460,18 @@ impl CertificateContract {
             .expect("Certificate not found");
         cert.issuer.require_auth();
 
+        // The stored issuer must still be an authorized issuer: an issuer who
+        // has been removed via `remove_issuer()` must not be able to freeze
+        // certificates they previously issued.
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Issuer(cert.issuer.clone()))
+            .unwrap_or(false)
+        {
+            panic!("Address is not an authorized issuer");
+        }
+
         if cert.status == CertificateStatus::Frozen {
             panic!("Certificate is already frozen");
         }
@@ -322,10 +481,12 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
         // Emit and publish freeze event
-        env.events().publish(
-            (symbol_short!("frozen"), id.clone()),
-            CertificateFrozenEvent { id, reason },
-        );
+        CertificateFrozenEvent {
+            topic_id: id.clone(),
+            id,
+            reason,
+        }
+        .publish(&env);
     }
 
     /// Unfreeze a certificate
@@ -337,6 +498,17 @@ impl CertificateContract {
             .expect("Certificate not found");
         cert.issuer.require_auth();
 
+        // Mirror the freeze guard: a removed issuer must not be able to
+        // unfreeze (or otherwise mutate) certificates they previously issued.
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Issuer(cert.issuer.clone()))
+            .unwrap_or(false)
+        {
+            panic!("Address is not an authorized issuer");
+        }
+
         if cert.status != CertificateStatus::Frozen {
             panic!("Certificate is not frozen");
         }
@@ -345,47 +517,11 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
         // Emit and publish unfreeze event
-        env.events().publish(
-            (symbol_short!("unfrozen"), id.clone()),
-            CertificateUnfrozenEvent { id },
-        );
-    }
-
-    /// Check whether a certificate is valid, returning (is_valid, status, reason).
-    /// Shared helper used by both `is_valid` and `batch_verify_certificates`.
-    fn check_validity(env: &Env, cert: &Certificate) -> (bool, CertificateStatus, Option<String>) {
-        if let Some(expires) = cert.expires_at {
-            if env.ledger().timestamp() >= expires {
-                return (
-                    false,
-                    CertificateStatus::Expired,
-                    Some(String::from_str(env, "expired")),
-                );
-            }
+        CertificateUnfrozenEvent {
+            topic_id: id.clone(),
+            id,
         }
-        match cert.status {
-            CertificateStatus::Active => (true, CertificateStatus::Active, None),
-            CertificateStatus::Revoked => (
-                false,
-                CertificateStatus::Revoked,
-                cert.revocation_reason
-                    .clone()
-                    .or_else(|| cert.status_reason.clone()),
-            ),
-            CertificateStatus::Suspended => (
-                false,
-                CertificateStatus::Suspended,
-                cert.status_reason.clone(),
-            ),
-            CertificateStatus::Frozen => {
-                (false, CertificateStatus::Frozen, cert.status_reason.clone())
-            }
-            CertificateStatus::Expired => (
-                false,
-                CertificateStatus::Expired,
-                Some(String::from_str(env, "expired")),
-            ),
-        }
+        .publish(&env);
     }
 
     /// Verify if a certificate is valid (active and not expired)
@@ -395,8 +531,15 @@ impl CertificateContract {
             .persistent()
             .get::<_, Certificate>(&DataKey::Certificate(id))
         {
-            let (valid, _, _) = Self::check_validity(&env, &cert);
-            valid
+            if cert.status != CertificateStatus::Active {
+                return false;
+            }
+            if let Some(expires) = cert.expires_at {
+                if env.ledger().timestamp() >= expires {
+                    return false;
+                }
+            }
+            true
         } else {
             false
         }
@@ -411,8 +554,8 @@ impl CertificateContract {
             .expect("Certificate not found");
         cert.issuer.require_auth();
 
-        if cert.status != CertificateStatus::Active {
-            panic!("Can only update metadata for active certificates");
+        if cert.status != CertificateStatus::Active && cert.status != CertificateStatus::Frozen {
+            panic!("Can only update metadata for active or frozen certificates");
         }
 
         // Increment version
@@ -420,6 +563,13 @@ impl CertificateContract {
         cert.metadata_uri = new_metadata_uri;
 
         Self::set_persistent(&env, &DataKey::Certificate(id), &cert);
+    }
+
+    /// Update a certificate's metadata URI. The existing update path checks
+    /// the issuer stored on this certificate, so its owner or another issuer
+    /// cannot authorize a change. Keep the older entry point for callers.
+    pub fn update_metadata_uri(env: Env, id: String, new_metadata_uri: String) {
+        Self::update_certificate_metadata(env, id, new_metadata_uri);
     }
 
     /// Reissue a certificate with new version (creates child certificate)
@@ -446,7 +596,7 @@ impl CertificateContract {
         }
 
         // Get original certificate
-        let mut original_cert: Certificate = env
+        let original_cert: Certificate = env
             .storage()
             .persistent()
             .get(&DataKey::Certificate(old_id.clone()))
@@ -455,11 +605,6 @@ impl CertificateContract {
         // Verify issuer matches
         if original_cert.issuer != issuer {
             panic!("Issuer does not match original certificate");
-        }
-
-        // Reject non-reissuable parent states (must be Active)
-        if original_cert.status != CertificateStatus::Active {
-            panic!("Cannot reissue non-active certificate");
         }
 
         // Check new ID doesn't exist
@@ -471,26 +616,18 @@ impl CertificateContract {
             panic!("Certificate with new ID already exists");
         }
 
-        // Create new certificate with incremented version using checked arithmetic
-        let new_minor = original_cert
-            .version
-            .minor
-            .checked_add(1)
-            .expect("Version minor overflow");
-
+        // Create new certificate with incremented version
         let new_version = CertificateVersion {
             major: original_cert.version.major,
-            minor: new_minor,
+            minor: original_cert.version.minor + 1,
             patch: 0,
             build: None,
         };
 
-        let target_owner = new_owner.unwrap_or(original_cert.owner.clone());
-
         let new_cert = Certificate {
             id: new_id.clone(),
             issuer: issuer.clone(),
-            owner: target_owner.clone(),
+            owner: new_owner.unwrap_or(original_cert.owner),
             status: CertificateStatus::Active,
             metadata_uri: new_metadata_uri,
             issued_at: env.ledger().timestamp(),
@@ -501,40 +638,19 @@ impl CertificateContract {
             parent_certificate_id: Some(old_id.clone()),
         };
 
-        // Mark parent certificate as superseded/revoked in the same call
-        let superseded_reason = String::from_str(&env, "superseded");
-        original_cert.status = CertificateStatus::Revoked;
-        original_cert.revocation_reason = Some(superseded_reason.clone());
-        original_cert.status_reason = Some(superseded_reason.clone());
-        Self::set_persistent(&env, &DataKey::Certificate(old_id.clone()), &original_cert);
-
-        // Emit revocation event for the superseded parent
-        env.events().publish(
-            (symbol_short!("revoked"), old_id.clone()),
-            CertificateRevokedEvent {
-                id: old_id.clone(),
-                reason: superseded_reason,
-            },
-        );
-
         // Store new certificate
         Self::set_persistent(&env, &DataKey::Certificate(new_id.clone()), &new_cert);
 
-        // Append new cert id to issuer and owner indexes
-        Self::append_cert_id(&env, DataKey::IssuerCertIds(issuer.clone()), new_id.clone());
-        Self::append_cert_id(&env, DataKey::OwnerCertIds(target_owner), new_id.clone());
-
         // Emit a distinct reissued event so indexers can tell a reissue apart
         // from a fresh issuance and observe the parent (old) certificate link.
-        env.events().publish(
-            (symbol_short!("reissued"), new_id.clone()),
-            CertificateReissuedEvent {
-                id: new_id,
-                old_id: old_id.clone(),
-                issuer,
-                owner: new_cert.owner,
-            },
-        );
+        CertificateReissuedEvent {
+            topic_id: new_id.clone(),
+            id: new_id,
+            old_id: old_id.clone(),
+            issuer,
+            owner: new_cert.owner,
+        }
+        .publish(&env);
     }
 
     // --- Certificate Transfer Functions ---
@@ -577,6 +693,16 @@ impl CertificateContract {
             .has(&DataKey::Transfer(transfer_id.clone()))
         {
             panic!("Transfer with this ID already exists");
+        }
+
+        // Only one open transfer per certificate.
+        //
+        // Allowing several meant a certificate could be moved twice: A opens
+        // transfers to B and to C, B's completes, then C's — still holding a
+        // stale `from_owner` of A — completes as well and takes the
+        // certificate from B without B's consent.
+        if Self::has_open_transfer(&env, certificate_id.clone()) {
+            panic!("Certificate already has an open transfer");
         }
 
         // Create transfer record
@@ -642,13 +768,12 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::Transfer(transfer_id.clone()), &transfer);
 
         // Emit the transfer acceptance event
-        env.events().publish(
-            (symbol_short!("accepted"), transfer_id.clone()),
-            TransferAcceptedEvent {
-                transfer_id: transfer_id.clone(),
-                to_owner: to_owner.clone(),
-            },
-        );
+        TransferAcceptedEvent {
+            topic_transfer_id: transfer_id.clone(),
+            transfer_id: transfer_id.clone(),
+            to_owner: to_owner.clone(),
+        }
+        .publish(&env);
 
         // Remove from pending transfers
         let pending = Self::get_pending_transfers(&env, to_owner.clone());
@@ -687,6 +812,21 @@ impl CertificateContract {
             .get(&DataKey::Certificate(transfer.certificate_id.clone()))
             .expect("Certificate not found");
 
+        // Re-check live certificate state, not just the transfer record.
+        //
+        // `transfer.from_owner` is a snapshot taken when the transfer was
+        // opened; it says nothing about who owns the certificate *now*.
+        // Without this the holder of a stale accepted transfer could move a
+        // certificate that had since changed hands.
+        if cert.owner != transfer.from_owner {
+            panic!("Certificate owner has changed since this transfer was initiated");
+        }
+
+        // A revoked, expired, suspended or frozen certificate must not move.
+        if cert.status != CertificateStatus::Active {
+            panic!("Can only transfer active certificates");
+        }
+
         let previous_owner = cert.owner.clone();
         let new_owner = transfer.to_owner.clone();
 
@@ -714,13 +854,12 @@ impl CertificateContract {
             cert.revocation_reason = Some(reason.clone());
 
             // Emit and publish revocation event for indexers
-            env.events().publish(
-                (symbol_short!("revoked"), transfer.certificate_id.clone()),
-                CertificateRevokedEvent {
-                    id: transfer.certificate_id.clone(),
-                    reason,
-                },
-            );
+            CertificateRevokedEvent {
+                topic_id: transfer.certificate_id.clone(),
+                id: transfer.certificate_id.clone(),
+                reason,
+            }
+            .publish(&env);
         }
 
         Self::set_persistent(
@@ -735,16 +874,22 @@ impl CertificateContract {
 
         Self::set_persistent(&env, &DataKey::Transfer(transfer_id.clone()), &transfer);
 
-        // Emit a completion event for off-chain systems
-        env.events().publish(
-            (Symbol::new(&env, "transfer_done"), transfer_id.clone()),
-            TransferCompletedEvent {
-                transfer_id,
-                certificate_id: cert.id,
-                from_owner: transfer.from_owner,
-                to_owner: cert.owner,
-            },
+        // Close any sibling transfers so none can be completed afterwards.
+        Self::cancel_other_open_transfers(
+            &env,
+            transfer.certificate_id.clone(),
+            transfer_id.clone(),
         );
+
+        // Emit a completion event for off-chain systems
+        TransferCompletedEvent {
+            topic_transfer_id: transfer_id.clone(),
+            transfer_id,
+            certificate_id: cert.id,
+            from_owner: transfer.from_owner,
+            to_owner: cert.owner,
+        }
+        .publish(&env);
     }
 
     /// Reject a pending certificate transfer
@@ -818,6 +963,54 @@ impl CertificateContract {
     }
 
     /// Get transfer history for a certificate
+    /// True when the certificate already has a Pending or Accepted transfer.
+    ///
+    /// Completed, Rejected and Cancelled transfers are closed and do not
+    /// block a new one.
+    fn has_open_transfer(env: &Env, certificate_id: String) -> bool {
+        let history = Self::get_transfer_history(env, certificate_id);
+        for transfer_id in history.iter() {
+            if let Some(existing) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, CertificateTransfer>(&DataKey::Transfer(transfer_id.clone()))
+            {
+                if existing.status == TransferStatus::Pending
+                    || existing.status == TransferStatus::Accepted
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Cancels every other open transfer for a certificate.
+    ///
+    /// Belt and braces alongside the `initiate_transfer` guard: records
+    /// created before that guard existed can still be sitting in storage, and
+    /// leaving them Accepted would keep the double-move path open.
+    fn cancel_other_open_transfers(env: &Env, certificate_id: String, keep: String) {
+        let history = Self::get_transfer_history(env, certificate_id);
+        for transfer_id in history.iter() {
+            if transfer_id == keep {
+                continue;
+            }
+            if let Some(mut other) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, CertificateTransfer>(&DataKey::Transfer(transfer_id.clone()))
+            {
+                if other.status == TransferStatus::Pending
+                    || other.status == TransferStatus::Accepted
+                {
+                    other.status = TransferStatus::Cancelled;
+                    Self::set_persistent(env, &DataKey::Transfer(transfer_id.clone()), &other);
+                }
+            }
+        }
+    }
+
     fn get_transfer_history(env: &Env, certificate_id: String) -> Vec<String> {
         env.storage()
             .persistent()
@@ -999,6 +1192,10 @@ impl CertificateContract {
         metadata: String,
         expiration_days: u32,
     ) -> PendingRequest {
+        // This guard must stay inside the function body and run before any
+        // other work: the fix for #569 was once committed at `impl`-block
+        // level, outside this function, which stopped the crate compiling
+        // (#612) and silently left proposals unauthenticated.
         issuer.require_auth();
         let config: MultisigConfig = env
             .storage()
@@ -1301,6 +1498,8 @@ impl CertificateContract {
         ver.last_wasm_hash = new_wasm_hash.clone();
         Self::set_persistent(&env, &DataKey::ContractVersion, &ver);
 
+        #[allow(deprecated)]
+
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
@@ -1315,10 +1514,7 @@ impl CertificateContract {
             })
     }
 
-    /// Batch verify multiple certificates.
-    ///
-    /// Shares validity evaluation with `is_valid`.
-    /// `total_cost` provides an estimated computational verification cost.
+    /// Batch verify multiple certificates
     pub fn batch_verify_certificates(env: Env, ids: Vec<String>) -> VerificationReport {
         const MAX_BATCH_SIZE: u32 = 100;
         if ids.len() > MAX_BATCH_SIZE {
@@ -1337,9 +1533,16 @@ impl CertificateContract {
                 .persistent()
                 .get::<_, Certificate>(&DataKey::Certificate(id.clone()))
             {
-                let (valid, status, reason) = Self::check_validity(&env, &cert);
+                let is_expired_by_time = cert
+                    .expires_at
+                    .is_some_and(|exp| env.ledger().timestamp() >= exp);
 
-                if valid {
+                let is_revoked = cert.status == CertificateStatus::Revoked
+                    || cert.status == CertificateStatus::Suspended
+                    || cert.status == CertificateStatus::Expired
+                    || is_expired_by_time;
+
+                if !is_revoked {
                     successful += 1;
                 } else {
                     failed += 1;
@@ -1348,23 +1551,18 @@ impl CertificateContract {
                 results.push_back(VerificationResult {
                     id: id.clone(),
                     exists: true,
-                    is_valid: valid,
-                    status: OptionalCertificateStatus::Some(status),
-                    reason,
+                    revoked: is_revoked,
                 });
             } else {
                 failed += 1;
                 results.push_back(VerificationResult {
                     id: id.clone(),
                     exists: false,
-                    is_valid: false,
-                    status: OptionalCertificateStatus::None,
-                    reason: Some(String::from_str(&env, "not_found")),
+                    revoked: false,
                 });
             }
         }
 
-        // Estimated verification cost: base verification fee + per-certificate estimate
         let total_cost = BASE_VERIFICATION_COST + (COST_PER_CERTIFICATE * ids.len() as u64);
 
         VerificationReport {
@@ -1598,3 +1796,5 @@ impl CertificateContract {
         }
     }
 }
+
+
